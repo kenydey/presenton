@@ -30,6 +30,7 @@
     "postinstall": "electron-builder install-app-deps",
     "dev": "rm -rf app_dist && tsc && electron .",
     "setup:env": "npm install && cd servers/fastapi && uv sync && cd ../../servers/nextjs && npm install",
+    "setup:uv": "cd servers/fastapi && uv sync && cd ../../servers/nextjs && npm install",
     "install:pyinstaller": "cd servers/fastapi && echo 'pyinstaller already in dependencies'",
     "build:ts": "rm -rf app_dist && tsc",
     "build:css": "tailwindcss -i ./resources/ui/assets/css/tailwind.import.css -o ./resources/ui/assets/css/tailwind.css --watch",

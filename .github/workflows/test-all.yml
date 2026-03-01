@@ -8,6 +8,90 @@ on:
   workflow_dispatch:
 
 jobs:
+  test-fastapi-uv:
+    name: Test Main FastAPI (uv)
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v4
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libreoffice \
+          fontconfig \
+          chromium \
+          chromium-driver
+
+    - name: Install Python dependencies with uv
+      working-directory: ./servers/fastapi
+      run: uv sync
+
+    - name: Set up environment variables
+      run: |
+        echo "APP_DATA_DIRECTORY=/tmp/app_data" >> $GITHUB_ENV
+        echo "TEMP_DIRECTORY=/tmp/presenton" >> $GITHUB_ENV
+        echo "PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium" >> $GITHUB_ENV
+        echo "DATABASE_URL=sqlite+aiosqlite:///./test.db" >> $GITHUB_ENV
+        echo "DISABLE_ANONYMOUS_TRACKING=true" >> $GITHUB_ENV
+        echo "DISABLE_IMAGE_GENERATION=true" >> $GITHUB_ENV
+
+    - name: Run tests
+      working-directory: ./servers/fastapi
+      run: uv run pytest tests/ -v --tb=short
+
+  test-electron-fastapi-uv:
+    name: Test Electron FastAPI (uv)
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v4
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libreoffice \
+          fontconfig \
+          chromium \
+          chromium-driver
+
+    - name: Install Python dependencies with uv
+      working-directory: ./electron/servers/fastapi
+      run: uv sync
+
+    - name: Set up environment variables
+      run: |
+        echo "APP_DATA_DIRECTORY=/tmp/app_data" >> $GITHUB_ENV
+        echo "TEMP_DIRECTORY=/tmp/presenton" >> $GITHUB_ENV
+        echo "PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium" >> $GITHUB_ENV
+        echo "DATABASE_URL=sqlite+aiosqlite:///./test.db" >> $GITHUB_ENV
+        echo "DISABLE_ANONYMOUS_TRACKING=true" >> $GITHUB_ENV
+        echo "DISABLE_IMAGE_GENERATION=true" >> $GITHUB_ENV
+
+    - name: Run tests
+      working-directory: ./electron/servers/fastapi
+      run: uv run pytest tests/ -v --tb=short
+
+    - name: Build FastAPI binary
+      working-directory: ./electron/servers/fastapi
+      run: uv run python -m PyInstaller server.spec
+
   test-fastapi:
     name: Test Main FastAPI
     runs-on: ubuntu-latest

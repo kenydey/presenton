@@ -89,6 +89,22 @@ Run Presenton as a native desktop application. LLM and image provider (API keys,
 
 **Prerequisites:** Node.js (LTS), npm, Python 3.11, and [uv](https://docs.astral.sh/uv/) (for the Electron FastAPI backend in `electron/servers/fastapi`).
 
+#### UV Installation Mode (Recommended)
+
+Use [uv](https://docs.astral.sh/uv/) for faster, more reliable Python dependency installation:
+
+```bash
+# One-command install (auto-installs uv if missing)
+./scripts/install-with-uv.sh electron
+
+# Or install FastAPI dependencies only
+./scripts/install-with-uv.sh fastapi-only
+```
+
+Modes: `electron` (desktop app, default), `main` (main servers), `fastapi-only` (Python backend only).
+
+#### Standard Setup
+
 **Setup (first time):**
 
 ```bash
