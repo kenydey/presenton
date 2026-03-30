@@ -11,6 +11,33 @@ const __dirname = dirname(__filename);
 const fastapiDir = join(__dirname, "servers/fastapi");
 const nextjsDir = join(__dirname, "servers/nextjs");
 
+/** Prefer PRESENTON_PYTHON, then uv's .venv (after `uv sync`), else system `python` (Docker / pip). */
+const resolvePythonExecutable = () => {
+  const fromEnv = process.env.PRESENTON_PYTHON?.trim();
+  if (fromEnv) {
+    if (existsSync(fromEnv)) {
+      return fromEnv;
+    }
+    console.warn(
+      `[start.js] PRESENTON_PYTHON is set but not found: ${fromEnv}, falling back`
+    );
+  }
+  const venvPython =
+    process.platform === "win32"
+      ? join(fastapiDir, ".venv", "Scripts", "python.exe")
+      : join(fastapiDir, ".venv", "bin", "python");
+  if (existsSync(venvPython)) {
+    return venvPython;
+  }
+  return "python";
+};
+
+const pythonExecutable = resolvePythonExecutable();
+
+const enableOllama =
+  process.env.ENABLE_OLLAMA !== "false" &&
+  process.env.ENABLE_OLLAMA !== "0";
+
 const args = process.argv.slice(2);
 const hasDevArg = args.includes("--dev") || args.includes("-d");
 const isDev = hasDevArg;
@@ -115,7 +142,7 @@ const setupUserConfigFromEnv = () => {
 
 const startServers = async () => {
   const fastApiProcess = spawn(
-    "python",
+    pythonExecutable,
     [
       "server.py",
       "--port",
@@ -135,7 +162,7 @@ const startServers = async () => {
   });
 
   const appmcpProcess = spawn(
-    "python",
+    pythonExecutable,
     ["mcp_server.py", "--port", appmcpPort.toString()],
     {
       cwd: fastapiDir,
@@ -170,22 +197,30 @@ const startServers = async () => {
     console.error("Next.js process failed to start:", err);
   });
 
-  const ollamaProcess = spawn("ollama", ["serve"], {
-    cwd: "/",
-    stdio: "inherit",
-    env: process.env,
-  });
+  let ollamaProcess = null;
+  if (enableOllama) {
+    ollamaProcess = spawn("ollama", ["serve"], {
+      cwd: "/",
+      stdio: "inherit",
+      env: process.env,
+    });
 
-  ollamaProcess.on("error", (err) => {
-    console.error("Ollama process failed to start:", err);
-  });
+    ollamaProcess.on("error", (err) => {
+      console.error("Ollama process failed to start:", err);
+    });
+  }
 
-  // Keep the Node process alive until both servers exit
-  const exitCode = await Promise.race([
+  const exitPromises = [
     new Promise((resolve) => fastApiProcess.on("exit", resolve)),
     new Promise((resolve) => nextjsProcess.on("exit", resolve)),
-    new Promise((resolve) => ollamaProcess.on("exit", resolve)),
-  ]);
+  ];
+  if (ollamaProcess) {
+    exitPromises.push(
+      new Promise((resolve) => ollamaProcess.on("exit", resolve))
+    );
+  }
+
+  const exitCode = await Promise.race(exitPromises);
 
   console.log(`One of the processes exited. Exit code: ${exitCode}`);
   process.exit(exitCode);
