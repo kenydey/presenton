@@ -21,6 +21,21 @@ sudo apt-get install -y nginx chromium-browser libreoffice fontconfig curl
 # Install Node.js 20 and uv per upstream docs
 ```
 
+## 一键安装脚本（Ubuntu/Debian）
+
+若希望开箱即用（自动安装依赖、`uv sync`、构建 Next.js、配置 nginx，并通过 certbot 自动签发 HTTPS），可以直接运行：
+
+```bash
+sudo bash scripts/install-presenton-vps.sh --domain <your-domain> --email <your-email>
+```
+
+安装完成后访问：
+
+- `http://<your-domain>`（或 `http://<vps-ip>`）
+- `https://<your-domain>`（certbot 签发成功后）
+
+默认对外使用 `80/443`，内部端口仍为 FastAPI `8000`、MCP `8001`、Next.js `3000`，nginx 负责反向代理。
+
 ## Install application
 
 From the repository root:

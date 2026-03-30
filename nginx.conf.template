@@ -14,7 +14,7 @@ http {
 
   server {
     listen 80;
-    server_name localhost;
+    server_name __PRESENTON_SERVER_NAME__;
 
     location / {
       proxy_pass http://localhost:3000;

@@ -20,16 +20,19 @@ else
   APP_DATA="${PRESENTON_APP_DATA:-$DEPLOY_ROOT/app_data}"
 fi
 
+SERVER_NAME="${PRESENTON_SERVER_NAME:-localhost}"
+
 TEMPLATE="$REPO_ROOT/nginx.conf.template"
 if [[ ! -f "$TEMPLATE" ]]; then
   echo "error: missing $TEMPLATE" >&2
   exit 1
 fi
 
-rendered="$(awk -v d="$DEPLOY_ROOT" -v a="$APP_DATA" '
+rendered="$(awk -v d="$DEPLOY_ROOT" -v a="$APP_DATA" -v s="$SERVER_NAME" '
   {
     gsub(/__PRESENTON_DEPLOY_ROOT__/, d)
     gsub(/__PRESENTON_APP_DATA__/, a)
+    gsub(/__PRESENTON_SERVER_NAME__/, s)
     print
   }
 ' "$TEMPLATE")"
