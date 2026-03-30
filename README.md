@@ -90,7 +90,7 @@ Presenton gives you complete control over your AI presentation workflow. Choose 
 
 - Custom Templates & Themes — Create unlimited presentation designs with HTML and Tailwind CSS
 - AI Template Generation — Create presentation templates from existing Powerpoint documents.
-- Flexible Generation — Build presentations from prompts or uploaded documents
+- Flexible Generation — Build presentations from prompts or uploaded **Supporting Documents** (PDF, TXT, Markdown `.md`/`.markdown`, PPTX, DOCX). Markdown files are read as UTF-8; optional YAML front matter delimited by `---` lines is stripped on the server before generation.
 - Export Ready — Save as PowerPoint (PPTX) and PDF with professional formatting
 - Built-In MCP Server — Generate presentations over Model Context Protocol
 - Bring Your Own Key — Use your own API keys for OpenAI, Google Gemini, Anthropic Claude, or any compatible provider. Only pay for what you use, no hidden fees or subscriptions.
@@ -385,7 +385,7 @@ Options: <code>concise</code>, <code>standard</code>, <code>text-heavy</code>
 <td>No</td>
 <td>
 Files to use in generation.  
-Upload first via <code>/api/v1/ppt/files/upload</code>.
+Upload first via <code>/api/v1/ppt/files/upload</code> (accepted types include PDF, plain text, Markdown, PPTX, and Word documents).
 </td>
 </tr>
 

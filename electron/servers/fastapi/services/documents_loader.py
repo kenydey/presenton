@@ -6,11 +6,32 @@ from typing import List, Optional, Tuple
 
 import pdfplumber
 from constants.documents import (
+    MARKDOWN_FILE_EXTENSIONS,
+    MARKDOWN_MIME_TYPES,
     PDF_MIME_TYPES,
     POWERPOINT_TYPES,
     TEXT_MIME_TYPES,
     WORD_TYPES,
 )
+
+
+def _strip_optional_yaml_front_matter(text: str) -> str:
+    if not text.startswith("---"):
+        return text
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return text
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            return "\n".join(lines[i + 1 :]).lstrip("\n")
+    return text
+
+
+def _read_markdown_file_sync(file_path: str) -> str:
+    with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+        raw = f.read()
+    return _strip_optional_yaml_front_matter(raw)
+
 
 # Platform-specific document service imports
 is_windows = sys.platform == 'win32'
@@ -73,10 +94,17 @@ class DocumentsLoader:
             imgs = []
 
             mime_type = mimetypes.guess_type(file_path)[0]
+            path_lower = file_path.lower()
+            is_markdown = mime_type in MARKDOWN_MIME_TYPES or path_lower.endswith(
+                MARKDOWN_FILE_EXTENSIONS
+            )
+
             if mime_type in PDF_MIME_TYPES:
                 document, imgs = await self.load_pdf(
                     file_path, load_text, load_images, temp_dir
                 )
+            elif is_markdown:
+                document = await self.load_markdown(file_path)
             elif mime_type in TEXT_MIME_TYPES:
                 document = await self.load_text(file_path)
             elif mime_type in POWERPOINT_TYPES:
@@ -122,8 +150,14 @@ class DocumentsLoader:
         return "\n\n".join(texts)
 
     async def load_text(self, file_path: str) -> str:
-        with open(file_path, "r", encoding="utf-8") as file:
-            return await asyncio.to_thread(file.read)
+        def read_sync() -> str:
+            with open(file_path, "r", encoding="utf-8", errors="replace") as file:
+                return file.read()
+
+        return await asyncio.to_thread(read_sync)
+
+    async def load_markdown(self, file_path: str) -> str:
+        return await asyncio.to_thread(_read_markdown_file_sync, file_path)
 
     def load_msword(self, file_path: str) -> str:
         if self.docling_service is not None:
