@@ -150,6 +150,9 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
+echo "[3.1/10] Ensuring Python 3.11 for FastAPI (uv sync requires >=3.11,<3.12)..."
+uv python install 3.11
+
 echo "[4/10] Preparing directories..."
 mkdir -p "$(dirname "$INSTALL_DIR")"
 if [[ -d "$INSTALL_DIR/.git" && "$FORCE" == "false" ]]; then
