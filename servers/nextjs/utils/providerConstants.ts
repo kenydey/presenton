@@ -24,6 +24,13 @@ export interface LLMProviderOption {
   model_label?: string;
   url?: string;
   icon?: string;
+  llmValue?: string;
+  customPreset?: {
+    url: string;
+    model?: string;
+    toolCalls?: boolean;
+    disableThinking?: boolean;
+  };
 }
 
 export const IMAGE_PROVIDERS: Record<string, ImageProviderOption> = {
@@ -125,6 +132,39 @@ export const LLM_PROVIDERS: Record<string, LLMProviderOption> = {
     label: "Custom",
     description: "Custom LLM",
     icon: "/icons/custom.png",
+  },
+  deepseek: {
+    value: "deepseek",
+    llmValue: "custom",
+    label: "DeepSeek",
+    description: "DeepSeek OpenAI-compatible API",
+    icon: "/icons/custom.png",
+    customPreset: {
+      url: "https://api.deepseek.com/v1",
+      model: "deepseek-chat",
+      toolCalls: true,
+      disableThinking: true,
+    },
+  },
+  qwen: {
+    value: "qwen",
+    llmValue: "custom",
+    label: "Qwen",
+    description: "Qwen OpenAI-compatible API",
+    icon: "/icons/custom.png",
+    customPreset: {
+      url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    },
+  },
+  moonshot: {
+    value: "moonshot",
+    llmValue: "custom",
+    label: "Moonshot",
+    description: "Moonshot OpenAI-compatible API",
+    icon: "/icons/custom.png",
+    customPreset: {
+      url: "https://api.moonshot.cn/v1",
+    },
   },
   codex: {
     value: "codex",

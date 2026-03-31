@@ -17,6 +17,8 @@ import { usePathname, useRouter } from 'next/navigation';
 import { handleSaveLLMConfig } from '@/utils/storeHelpers';
 import { checkIfSelectedOllamaModelIsPulled, pullOllamaModel } from '@/utils/providerUtils';
 
+const normalizeOpenAICompatibleUrl = (url: string) => url.trim().replace(/\/+$/, '');
+
 const PresentonMode = ({ currentStep, setStep }: { currentStep: number, setStep: (step: number) => void }) => {
     const pathname = usePathname();
     const router = useRouter();
@@ -42,21 +44,36 @@ const PresentonMode = ({ currentStep, setStep }: { currentStep: number, setStep:
         done: boolean;
     } | null>(null);
 
-    const handleProviderChange = (provider: string) => {
+    const resolveProviderValue = (providerValue: string) => {
+        const providerMeta = LLM_PROVIDERS[providerValue];
+        return providerMeta?.llmValue || providerValue;
+    };
 
-        setLlmConfig(prev => ({
-            ...prev,
-            LLM: provider
-        }));
+    const handleProviderChange = (provider: string) => {
+        const providerMeta = LLM_PROVIDERS[provider];
+        const resolvedProvider = resolveProviderValue(provider);
+        setLlmConfig(prev => {
+            const nextConfig: LLMConfig = {
+                ...prev,
+                LLM: resolvedProvider,
+            };
+            if (providerMeta?.customPreset) {
+                nextConfig.CUSTOM_LLM_URL = normalizeOpenAICompatibleUrl(providerMeta.customPreset.url);
+                if (providerMeta.customPreset.model) {
+                    nextConfig.CUSTOM_MODEL = providerMeta.customPreset.model;
+                }
+                if (providerMeta.customPreset.toolCalls !== undefined) {
+                    nextConfig.TOOL_CALLS = providerMeta.customPreset.toolCalls;
+                }
+                if (providerMeta.customPreset.disableThinking !== undefined) {
+                    nextConfig.DISABLE_THINKING = providerMeta.customPreset.disableThinking;
+                }
+            }
+            return nextConfig;
+        });
         setOpenProviderSelect(false);
         setAvailableModels([]);
         setModelsChecked(false);
-        if (currentModelField) {
-            setLlmConfig(prev => ({
-                ...prev,
-                [currentModelField]: ''
-            }));
-        }
     };
 
     const currentModelField = useMemo(() => {
@@ -70,6 +87,9 @@ const PresentonMode = ({ currentStep, setStep }: { currentStep: number, setStep:
             case 'ollama':
                 return 'OLLAMA_MODEL';
             case 'custom':
+            case 'deepseek':
+            case 'qwen':
+            case 'moonshot':
                 return 'CUSTOM_MODEL';
             default:
                 return '';
@@ -84,6 +104,9 @@ const PresentonMode = ({ currentStep, setStep }: { currentStep: number, setStep:
             case 'anthropic':
                 return 'ANTHROPIC_API_KEY';
             case 'custom':
+            case 'deepseek':
+            case 'qwen':
+            case 'moonshot':
                 return 'CUSTOM_LLM_API_KEY';
             default:
                 return '';
@@ -101,6 +124,23 @@ const PresentonMode = ({ currentStep, setStep }: { currentStep: number, setStep:
     const currentModel = currentModelField ? ((llmConfig as Record<string, unknown>)[currentModelField] as string || '') : '';
     const currentOllamaUrl = llmConfig.OLLAMA_URL || '';
     const useCustomOllamaUrl = !!llmConfig.USE_CUSTOM_URL;
+    const selectedProviderUiKey = useMemo(() => {
+        if (llmConfig.LLM === 'custom') {
+            const url = normalizeOpenAICompatibleUrl(llmConfig.CUSTOM_LLM_URL || '');
+            if (url === normalizeOpenAICompatibleUrl(LLM_PROVIDERS.deepseek.customPreset?.url || '')) {
+                return 'deepseek';
+            }
+            if (url === normalizeOpenAICompatibleUrl(LLM_PROVIDERS.qwen.customPreset?.url || '')) {
+                return 'qwen';
+            }
+            if (url === normalizeOpenAICompatibleUrl(LLM_PROVIDERS.moonshot.customPreset?.url || '')) {
+                return 'moonshot';
+            }
+        }
+        return llmConfig.LLM || 'openai';
+    }, [llmConfig.LLM, llmConfig.CUSTOM_LLM_URL]);
+    const selectedProviderLabel =
+        LLM_PROVIDERS[selectedProviderUiKey]?.label || selectedProviderUiKey;
 
     const fetchAvailableModels = async () => {
         if (llmConfig.LLM === 'openai' && !currentApiKey) return;
@@ -134,14 +174,15 @@ const PresentonMode = ({ currentStep, setStep }: { currentStep: number, setStep:
             } else if (llmConfig.LLM === 'ollama') {
                 response = await fetch('/api/v1/ppt/ollama/models/supported');
             } else {
+                const normalizedCustomUrl = normalizeOpenAICompatibleUrl(llmConfig.CUSTOM_LLM_URL || '');
                 response = await fetch('/api/v1/ppt/openai/models/available', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        url: llmConfig.LLM === 'custom' ? llmConfig.CUSTOM_LLM_URL : LLM_PROVIDERS[llmConfig.LLM!]?.url || '',
-                        api_key: currentApiKey
+                        url: llmConfig.LLM === 'custom' ? normalizedCustomUrl : (LLM_PROVIDERS[selectedProviderUiKey]?.url || ''),
+                        api_key: currentApiKey.trim()
                     }),
                 });
             }
@@ -187,7 +228,7 @@ const PresentonMode = ({ currentStep, setStep }: { currentStep: number, setStep:
                 console.error('Failed to fetch models');
                 setAvailableModels([]);
                 setModelsChecked(true);
-                toast.error(`Failed to fetch ${LLM_PROVIDERS[llmConfig.LLM!]?.label} models`);
+                toast.error(`Failed to fetch ${LLM_PROVIDERS[selectedProviderUiKey]?.label || selectedProviderUiKey} models`);
             }
         } catch (error) {
             console.error('Error fetching models:', error);
@@ -364,9 +405,9 @@ const PresentonMode = ({ currentStep, setStep }: { currentStep: number, setStep:
                                 >
                                     <div className="flex gap-3 items-center">
                                         <span className="text-sm font-medium text-gray-900">
-                                            {llmConfig.LLM
-                                                ? LLM_PROVIDERS[llmConfig.LLM]
-                                                    ?.label || llmConfig.LLM
+                                            {selectedProviderUiKey
+                                                ? LLM_PROVIDERS[selectedProviderUiKey]
+                                                    ?.label || selectedProviderUiKey
                                                 : "Select text provider"}
                                         </span>
                                     </div>
@@ -393,7 +434,7 @@ const PresentonMode = ({ currentStep, setStep }: { currentStep: number, setStep:
                                                         <Check
                                                             className={cn(
                                                                 "mr-2 h-4 w-4",
-                                                                llmConfig.LLM === provider.value
+                                                                selectedProviderUiKey === provider.value
                                                                     ? "opacity-100"
                                                                     : "opacity-0"
                                                             )}
@@ -469,7 +510,7 @@ const PresentonMode = ({ currentStep, setStep }: { currentStep: number, setStep:
                             ) : (
                                 <>
                                     <label className="block text-sm font-medium capitalize text-gray-700 mb-2">
-                                        {llmConfig.LLM === 'custom' ? 'Custom LLM API Key' : `${llmConfig.LLM} API Key`}
+                                        {`${selectedProviderLabel} API Key`}
                                     </label>
                                     <div className="relative">
                                         <input
@@ -480,7 +521,7 @@ const PresentonMode = ({ currentStep, setStep }: { currentStep: number, setStep:
                                                 [currentApiKeyField]: e.target.value
                                             }))}
                                             className="w-full px-2 py-3 outline-none border  border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
-                                            placeholder={`Enter your ${llmConfig.LLM} API key`}
+                                            placeholder={`Enter your ${selectedProviderLabel} API key`}
                                         />
                                         <button
                                             type="button"
@@ -498,7 +539,7 @@ const PresentonMode = ({ currentStep, setStep }: { currentStep: number, setStep:
                                     value={llmConfig.CUSTOM_LLM_URL}
                                     onChange={(e) => setLlmConfig(prev => ({
                                         ...prev,
-                                        CUSTOM_LLM_URL: e.target.value
+                                        CUSTOM_LLM_URL: normalizeOpenAICompatibleUrl(e.target.value)
                                     }))}
                                     className="w-full mt-2 px-2 py-3 outline-none border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
                                     placeholder="OpenAI-compatible URL"
@@ -546,7 +587,7 @@ const PresentonMode = ({ currentStep, setStep }: { currentStep: number, setStep:
                         <div className="w-full">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    {llmConfig.LLM === 'ollama' ? 'Choose a supported model' : `Select ${LLM_PROVIDERS[llmConfig.LLM!]?.label} Model`}
+                                    {llmConfig.LLM === 'ollama' ? 'Choose a supported model' : `Select ${LLM_PROVIDERS[selectedProviderUiKey]?.label || selectedProviderUiKey} Model`}
                                 </label>
                                 <div className="w-full">
                                     <Popover

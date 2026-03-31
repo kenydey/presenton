@@ -57,6 +57,8 @@ export default function CustomConfig({
 
   const fetchCustomModels = async () => {
     if (!customLlmUrl) return;
+    const normalizedUrl = customLlmUrl.trim();
+    const normalizedApiKey = customLlmApiKey.trim();
 
     try {
       setCustomModelsLoading(true);
@@ -66,8 +68,8 @@ export default function CustomConfig({
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          url: customLlmUrl,
-          api_key: customLlmApiKey,
+          url: normalizedUrl,
+          api_key: normalizedApiKey,
         }),
       });
 

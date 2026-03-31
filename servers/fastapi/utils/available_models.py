@@ -4,7 +4,8 @@ from google import genai
 
 
 async def list_available_openai_compatible_models(url: str, api_key: str) -> list[str]:
-    client = AsyncOpenAI(api_key=api_key, base_url=url)
+    normalized_url = (url or "").strip().rstrip("/")
+    client = AsyncOpenAI(api_key=api_key, base_url=normalized_url)
     models = (await client.models.list()).data
     if models:
         return list(map(lambda x: x.id, models))

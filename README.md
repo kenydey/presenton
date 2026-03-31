@@ -233,6 +233,7 @@ For **Docker** and **self-hosted deployments** (systemd or `start.js`), also set
 - CUSTOM_LLM_URL=[Custom OpenAI Compatible URL]: Provide this if **LLM** is set to **custom**
 - CUSTOM_LLM_API_KEY=[Custom OpenAI Compatible API KEY]: Provide this if **LLM** is set to **custom**
 - CUSTOM_MODEL=[Custom Model ID]: Provide this if **LLM** is set to **custom**
+- `CUSTOM_LLM_URL` now accepts common OpenAI-compatible endpoint formats and normalizes them automatically (e.g. trims spaces; `https://api.deepseek.com/v1/` works the same as `https://api.deepseek.com/v1`).
 - TOOL_CALLS=[Enable/Disable Tool Calls on Custom LLM]: If **true**, **LLM** will use Tool Call instead of Json Schema for Structured Output.
 - DISABLE_THINKING=[Enable/Disable Thinking on Custom LLM]: If **true**, Thinking will be disabled.
 - WEB_GROUNDING=[Enable/Disable Web Search for OpenAI, Google And Anthropic]: If **true**, LLM will be able to search web for better results.
