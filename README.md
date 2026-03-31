@@ -203,13 +203,15 @@ If you want “open-box” deployment, run the one-click installer with HTTPS fr
 
 These settings apply to Docker, the Electron app's backend, and the `start.js` stack (VPS / bare-metal). You may want to directly provide your API KEYS as environment variables and keep them hidden. You can set these environment variables to achieve it.
 
-For **Docker** and **`start.js` (VPS / bare-metal)**, also set:
+For **Docker** and **self-hosted deployments** (systemd or `start.js`), also set:
 
 - APP_DATA_DIRECTORY=[path]: Persistent directory for user config, uploads, and exports (required for `start.js`).
 - TEMP_DIRECTORY=[path]: Temp directory (e.g. `/tmp/presenton` on Linux).
 - PUPPETEER_EXECUTABLE_PATH=[path]: Chromium/Chrome binary for headless export (see [docs/vps-uv.md](./docs/vps-uv.md)).
 - PRESENTON_PYTHON=[path]: Optional; force a specific Python for FastAPI/MCP instead of auto-detecting `servers/fastapi/.venv` or `python`.
 - ENABLE_OLLAMA=[true/false]: Set to **false** to skip spawning `ollama serve` when using `start.js` without local Ollama.
+- PRESENTON_NEXTJS_INTERNAL_URL=[url]: Internal URL used by FastAPI to call Next.js APIs (default for direct install: `http://127.0.0.1:5000`).
+- PRESENTON_FASTAPI_INTERNAL_URL=[url]: Internal URL used by Next.js rewrites to call FastAPI APIs (default: `http://127.0.0.1:8000`).
 
 - CAN_CHANGE_KEYS=[true/false]: Set this to **false** if you want to keep API Keys hidden and make them unmodifiable.
 - LLM=[openai/google/anthropic/ollama/custom]: Select **LLM** of your choice.
