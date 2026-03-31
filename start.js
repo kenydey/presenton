@@ -11,6 +11,16 @@ const __dirname = dirname(__filename);
 const fastapiDir = join(__dirname, "servers/fastapi");
 const nextjsDir = join(__dirname, "servers/nextjs");
 
+/** Resolve APP_DATA_DIRECTORY safely to avoid path join crashes when env is missing. */
+const resolveAppDataDirectory = () => {
+  const fromEnv = process.env.APP_DATA_DIRECTORY?.trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+  // Keep start.js usable out-of-the-box for local/self-hosted runs.
+  return join(__dirname, "app_data");
+};
+
 /** Prefer PRESENTON_PYTHON, then uv's .venv (after `uv sync`), else system `python` (Docker / pip). */
 const resolvePythonExecutable = () => {
   const fromEnv = process.env.PRESENTON_PYTHON?.trim();
@@ -47,7 +57,9 @@ const fastapiPort = 8000;
 const nextjsPort = 3000;
 const appmcpPort = 8001;
 
-const userConfigPath = join(process.env.APP_DATA_DIRECTORY, "userConfig.json");
+const appDataDirectory = resolveAppDataDirectory();
+process.env.APP_DATA_DIRECTORY = appDataDirectory;
+const userConfigPath = join(appDataDirectory, "userConfig.json");
 const userDataDir = dirname(userConfigPath);
 
 // Create user_data directory if it doesn't exist

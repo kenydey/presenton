@@ -1,13 +1,12 @@
 # VPS / bare-metal deployment with uv
 
-Run Presenton on a Linux server without Docker: install system packages, sync Python dependencies with [uv](https://docs.astral.sh/uv/), build Next.js, then start everything with [`start.js`](../start.js) (same entrypoint as the container).
+Run Presenton on a Linux server without Docker: install system packages, sync Python dependencies with [uv](https://docs.astral.sh/uv/), build Next.js, then run FastAPI + MCP + Next.js as separate systemd services.
 
 ## Prerequisites (Debian / Ubuntu)
 
 Adjust package names if you use another distribution.
 
 - **Node.js 20** (e.g. [NodeSource](https://github.com/nodesource/distributions) or your distro’s packages)
-- **nginx**
 - **Chromium** (for Puppeteer / export paths) — set `PUPPETEER_EXECUTABLE_PATH` to the browser binary (often `/usr/bin/chromium` or `/usr/bin/chromium-browser`)
 - **LibreOffice** and **fontconfig**
 - **uv** — see [Installing uv](https://docs.astral.sh/uv/getting-started/installation/)
@@ -17,24 +16,29 @@ Example (Ubuntu):
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y nginx chromium-browser libreoffice fontconfig curl
+sudo apt-get install -y chromium-browser libreoffice fontconfig curl
 # Install Node.js 20 and uv per upstream docs
 ```
 
 ## 一键安装脚本（Ubuntu/Debian）
 
-若希望开箱即用（自动安装依赖、`uv sync`、构建 Next.js、配置 nginx，并通过 certbot 自动签发 HTTPS），可以直接运行：
+若希望开箱即用（自动安装依赖、`uv sync`、构建 Next.js、写入 systemd 服务并直接启动），可以直接运行（脚本固定从 `https://github.com/kenydey/presenton.git` 部署）：
 
 ```bash
-sudo bash scripts/install-presenton-vps.sh --domain <your-domain> --email <your-email>
+sudo bash scripts/install-presenton-vps.sh
 ```
 
 安装完成后访问：
 
-- `http://<your-domain>`（或 `http://<vps-ip>`）
-- `https://<your-domain>`（certbot 签发成功后）
+- `http://<vps-ip>:5000`
 
-默认对外使用 `80/443`，内部端口仍为 FastAPI `8000`、MCP `8001`、Next.js `3000`，nginx 负责反向代理。
+默认端口：FastAPI `8000`、MCP `8001`、Next.js `5000`。无需 nginx。
+
+如需 nginx + HTTPS（可选），使用：
+
+```bash
+sudo bash scripts/install-presenton-vps.sh --with-nginx --domain <your-domain> --email <your-email>
+```
 
 ## Install application
 
@@ -75,36 +79,52 @@ All other keys match the **Deployment Configurations** section in [README.md](..
 
 Ensure `APP_DATA_DIRECTORY` exists and is writable by the user that runs `node start.js`.
 
-## Nginx configuration
+## Nginx configuration（可选）
 
-The committed [`nginx.conf`](../nginx.conf) assumes Docker layout (`/app`, `/app_data`). On a VPS, generate a config that points at your real paths:
+当你启用 `--with-nginx` 时，脚本会自动生成并安装站点配置。若你要手动生成，使用：
 
 ```bash
 export PRESENTON_DEPLOY_ROOT=/opt/presenton    # repository root
 export PRESENTON_APP_DATA=/var/lib/presenton   # same as APP_DATA_DIRECTORY
+export PRESENTON_NEXTJS_PORT=5000
+export PRESENTON_FASTAPI_PORT=8000
+export PRESENTON_MCP_PORT=8001
 ./scripts/render-nginx-conf.sh /tmp/presenton.nginx.conf
 sudo cp /tmp/presenton.nginx.conf /etc/nginx/sites-available/presenton
 # Enable site and disable default as appropriate, then:
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
-If you clone the repo to `/app` and use `APP_DATA_DIRECTORY=/app_data`, you can use the stock `nginx.conf` with minimal or no edits.
-
-`start.js` runs `service nginx start`. On many VPS setups nginx is already managed by systemd; you can start nginx yourself and rely on `start.js` only for FastAPI, Next.js, and (optionally) Ollama — or run `node start.js` under a user that may invoke `service nginx start` via sudo, depending on your policy.
+`nginx.conf.template` 已支持通过环境变量覆盖 Next/FastAPI/MCP 端口，不再写死。
 
 ## Run
 
-From the repository root (same as Docker `WORKDIR`):
+From the repository root:
 
 ```bash
 export APP_DATA_DIRECTORY=/var/lib/presenton
 export TEMP_DIRECTORY=/tmp/presenton
 export PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 export ENABLE_OLLAMA=false   # if you do not use local Ollama
-node start.js
+export PRESENTON_NEXTJS_INTERNAL_URL=http://127.0.0.1:5000
+export PRESENTON_FASTAPI_INTERNAL_URL=http://127.0.0.1:8000
+
+# FastAPI
+cd servers/fastapi
+uv sync --frozen
+.venv/bin/python server.py --port 8000 --reload false
+
+# MCP (new terminal)
+.venv/bin/python mcp_server.py --port 8001
+
+# Next.js (new terminal)
+cd ../nextjs
+npm ci
+npm run build
+npm run start -- -H 127.0.0.1 -p 5000
 ```
 
-Open `http://<server>:80` (or the port nginx listens on). For HTTPS, terminate TLS with nginx or a reverse proxy in front.
+Open `http://<server>:5000`.
 
 ## systemd example
 
@@ -120,37 +140,25 @@ LLM=openai
 OPENAI_API_KEY=sk-...
 ```
 
-`/etc/systemd/system/presenton.service`:
+脚本会创建以下 unit：
 
-```ini
-[Unit]
-Description=Presenton (FastAPI + Next.js via start.js)
-After=network.target nginx.service
-
-[Service]
-Type=simple
-User=presenton
-Group=presenton
-WorkingDirectory=/opt/presenton
-EnvironmentFile=/etc/presenton.env
-ExecStart=/usr/bin/node /opt/presenton/start.js
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
+- `presenton-fastapi.service`
+- `presenton-nextjs.service`
+- `presenton-mcp.service`
 
 Then:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now presenton
+sudo systemctl enable --now presenton-fastapi presenton-nextjs presenton-mcp
 ```
 
 ## Firewall
 
-Allow only what you need (e.g. `80`/`443` from the internet; keep `3000`, `8000`, `8001` on localhost behind nginx).
+Allow only what you need:
+
+- no nginx mode: expose `5000` (and keep `8000`, `8001` internal if possible)
+- nginx mode: expose `80/443`
 
 ## Codex OAuth
 

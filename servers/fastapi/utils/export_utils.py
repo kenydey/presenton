@@ -15,10 +15,8 @@ import uuid
 
 
 def _nextjs_internal_base_url() -> str:
-    # In Docker, nginx typically exposes the app on :80 inside the container, so `localhost` works.
-    # For local dev (`start.js`), Next.js listens on 127.0.0.1:3000 — set:
-    # `PRESENTON_NEXTJS_INTERNAL_URL=http://127.0.0.1:3000`
-    return os.getenv("PRESENTON_NEXTJS_INTERNAL_URL", "http://localhost").rstrip("/")
+    # Prefer explicit internal URL; default to direct Next.js dev server in local runs.
+    return os.getenv("PRESENTON_NEXTJS_INTERNAL_URL", "http://127.0.0.1:3000").rstrip("/")
 
 
 async def export_presentation(

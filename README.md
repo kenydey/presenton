@@ -193,9 +193,9 @@ Run Presenton directly in your browser — no installation, no setup required. S
 
 **Option 3: VPS / bare-metal (uv + Node.js)**
 
-Use this when you host on a Linux VPS without Docker: install system packages (nginx, Chromium, LibreOffice, etc.), run `uv sync` in `servers/fastapi`, build Next.js, configure nginx paths, then start with `node start.js` from the repository root. Full steps, environment variables, nginx templating (`scripts/render-nginx-conf.sh`), and a systemd example are in **[docs/vps-uv.md](./docs/vps-uv.md)**.
+Use this when you host on a Linux VPS without Docker: install system packages (Chromium, LibreOffice, etc.), run `uv sync` in `servers/fastapi`, build Next.js, then run FastAPI and Next.js as separate services. By default, no nginx is required and Next.js serves on port `5000`. Full steps and systemd examples are in **[docs/vps-uv.md](./docs/vps-uv.md)**.
 
-If you want “open-box” deployment, run the one-click installer with HTTPS from **[scripts/install-presenton-vps.sh](./scripts/install-presenton-vps.sh)** (it configures nginx and certbot and uses default external ports `80/443`).
+For one-command “open-box” setup on Ubuntu/Debian, run **[scripts/install-presenton-vps.sh](./scripts/install-presenton-vps.sh)**. It deploys from `https://github.com/kenydey/presenton`, defaults to direct mode (`Next.js:5000`, `FastAPI:8000`, `MCP:8001`), and supports optional `--with-nginx` + certbot HTTPS.
 
 #
 

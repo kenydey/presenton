@@ -15,10 +15,13 @@ export function ConfigurationInitializer({ children }: { children: React.ReactNo
   const router = useRouter();
   const route = usePathname();
 
-  // Fetch user config state
+  // Fetch user config state (skip on pdf-maker: headless PPTX/PDF export must mount immediately)
   useEffect(() => {
+    if (route === "/pdf-maker" || route?.startsWith("/pdf-maker")) {
+      return;
+    }
     fetchUserConfigState();
-  }, []);
+  }, [route]);
 
   const setLoadingToFalseAfterNavigatingTo = (pathname: string) => {
     const interval = setInterval(() => {
@@ -107,6 +110,9 @@ export function ConfigurationInitializer({ children }: { children: React.ReactNo
     }
   }
 
+  if (route === "/pdf-maker" || route?.startsWith("/pdf-maker")) {
+    return <>{children}</>;
+  }
 
   if (isLoading) {
     return (

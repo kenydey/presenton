@@ -1,15 +1,23 @@
 
+const fastapiInternalBaseUrl = (
+  process.env.PRESENTON_FASTAPI_INTERNAL_URL || "http://127.0.0.1:8000"
+).replace(/\/+$/, "");
+
 const nextConfig = {
   reactStrictMode: false,
   distDir: ".next-build",
   
 
-  // Rewrites for development - proxy font requests to FastAPI backend
+  // Rewrites for development - proxy API/static requests to FastAPI backend
   async rewrites() {
     return [
       {
+        source: "/api/v1/:path*",
+        destination: `${fastapiInternalBaseUrl}/api/v1/:path*`,
+      },
+      {
         source: '/app_data/fonts/:path*',
-        destination: 'http://localhost:8000/app_data/fonts/:path*',
+        destination: `${fastapiInternalBaseUrl}/app_data/fonts/:path*`,
       },
     ];
   },

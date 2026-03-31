@@ -31,7 +31,8 @@ const PresentationPage = ({ presentation_id }: { presentation_id: string }) => {
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    if (presentationData?.slides[0].layout.includes("custom")) {
+    const firstLayout = presentationData?.slides?.[0]?.layout;
+    if (firstLayout?.includes("custom")) {
       const existingScript = document.querySelector(
         'script[src*="tailwindcss.com"]'
       );
@@ -64,6 +65,14 @@ const PresentationPage = ({ presentation_id }: { presentation_id: string }) => {
       setContentLoading(false);
     }
   };
+
+  const pdfMakerStatus: "loading" | "ready" | "error" = error
+    ? "error"
+    : contentLoading || !presentationData
+    ? "loading"
+    : presentationData.slides && presentationData.slides.length > 0
+    ? "ready"
+    : "error";
 
   const applyTheme = async (theme: Theme) => {
     const element = document.getElementById('presentation-slides-wrapper')
@@ -102,72 +111,74 @@ const PresentationPage = ({ presentation_id }: { presentation_id: string }) => {
   }
 
 
-  // Regular view
+  // Keep #presentation-slides-wrapper mounted in all states so Puppeteer export
+  // can wait on data-pdf-maker-status (loading → ready/error) without racing a removed node.
   return (
     <div className="flex overflow-hidden flex-col">
-      {error ? (
-        <div className="flex flex-col items-center justify-center h-screen bg-gray-100">
-          <div
-            className="bg-white border border-red-300 text-red-700 px-6 py-8 rounded-lg shadow-lg flex flex-col items-center"
-            role="alert"
-          >
-            <AlertCircle className="w-16 h-16 mb-4 text-red-500" />
-            <strong className="font-bold text-4xl mb-2">Oops!</strong>
-            <p className="block text-2xl py-2">
-              We encountered an issue loading your presentation.
-            </p>
-            <p className="text-lg py-2">
-              Please check your internet connection or try again later.
-            </p>
-            <Button
-              className="mt-4 bg-red-500 text-white hover:bg-red-600 focus:ring-4 focus:ring-red-300"
-              onClick={() => {
-                trackEvent(MixpanelEvent.PdfMaker_Retry_Button_Clicked, { pathname });
-                window.location.reload();
-              }}
+      <div
+        id="presentation-slides-wrapper"
+        data-pdf-maker-status={pdfMakerStatus}
+        className="mx-auto flex flex-col items-center overflow-hidden justify-center"
+      >
+        {error ? (
+          <div className="flex flex-col items-center justify-center min-h-screen w-full bg-gray-100">
+            <div
+              className="bg-white border border-red-300 text-red-700 px-6 py-8 rounded-lg shadow-lg flex flex-col items-center"
+              role="alert"
             >
-              Retry
-            </Button>
+              <AlertCircle className="w-16 h-16 mb-4 text-red-500" />
+              <strong className="font-bold text-4xl mb-2">Oops!</strong>
+              <p className="block text-2xl py-2">
+                We encountered an issue loading your presentation.
+              </p>
+              <p className="text-lg py-2">
+                Please check your internet connection or try again later.
+              </p>
+              <Button
+                className="mt-4 bg-red-500 text-white hover:bg-red-600 focus:ring-4 focus:ring-red-300"
+                onClick={() => {
+                  trackEvent(MixpanelEvent.PdfMaker_Retry_Button_Clicked, {
+                    pathname,
+                  });
+                  window.location.reload();
+                }}
+              >
+                Retry
+              </Button>
+            </div>
           </div>
-        </div>
-      ) : (
-        <div className="">
-          <div
-            id="presentation-slides-wrapper"
-            className="mx-auto flex flex-col items-center  overflow-hidden  justify-center   "
-          >
-            {!presentationData ||
-
-              contentLoading ||
-              !presentationData?.slides ||
-              presentationData?.slides.length === 0 ? (
-              <div className="relative w-full h-[calc(100vh-120px)] mx-auto ">
-                <div className=" ">
-                  {Array.from({ length: 2 }).map((_, index) => (
-                    <Skeleton
-                      key={index}
-                      className="aspect-video bg-gray-400 my-4 w-full mx-auto max-w-[1280px]"
-                    />
-                  ))}
-                </div>
+        ) : !presentationData ||
+          contentLoading ||
+          !presentationData?.slides ||
+          presentationData?.slides.length === 0 ? (
+          <div className="relative w-full h-[calc(100vh-120px)] mx-auto ">
+            <div className=" ">
+              {Array.from({ length: 2 }).map((_, index) => (
+                <Skeleton
+                  key={index}
+                  className="aspect-video bg-gray-400 my-4 w-full mx-auto max-w-[1280px]"
+                />
+              ))}
+            </div>
+          </div>
+        ) : (
+          <>
+            {presentationData.slides.map((slide: any, index: number) => (
+              <div
+                key={index}
+                className="w-full"
+                data-speaker-note={slide.speaker_note}
+              >
+                <V1ContentRender
+                  slide={slide}
+                  isEditMode={true}
+                  theme={null}
+                />
               </div>
-            ) : (
-              <>
-                {presentationData &&
-                  presentationData.slides &&
-                  presentationData.slides.length > 0 &&
-                  presentationData.slides.map((slide: any, index: number) => (
-                    // [data-speaker-note] is used to extract the speaker note from the slide for export to pptx
-                    <div key={index} className="w-full" data-speaker-note={slide.speaker_note}>
-                      <V1ContentRender slide={slide} isEditMode={true} theme={null}
-                      />
-                    </div>
-                  ))}
-              </>
-            )}
-          </div>
-        </div>
-      )}
+            ))}
+          </>
+        )}
+      </div>
     </div>
   );
 };
