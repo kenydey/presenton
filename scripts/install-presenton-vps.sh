@@ -20,6 +20,8 @@ Options:
   --next-port <port>      Next.js port (default: 5000)
   --fastapi-port <port>   FastAPI port (default: 8000)
   --mcp-port <port>       MCP port (default: 8001)
+  --service-user <user>   System user to run services (default: presenton)
+  --upgrade               Upgrade existing install in-place (default: false)
   --enable-ollama         Enable local ollama serve (default: disabled)
   --with-nginx            Configure nginx reverse proxy (optional)
   --domain <domain>       Required only when --with-nginx is used
@@ -39,9 +41,12 @@ MCP_PORT="8001"
 ENABLE_OLLAMA="false"
 WITH_NGINX="false"
 FORCE="false"
+UPGRADE="false"
 DOMAIN=""
 EMAIL=""
 NEXTJS_BIND_HOST="0.0.0.0"
+SERVICE_USER="presenton"
+TEMP_DIR="/tmp/presenton"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -71,6 +76,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --enable-ollama)
       ENABLE_OLLAMA="true"
+      shift 1
+      ;;
+    --service-user)
+      SERVICE_USER="${2:-}"
+      shift 2
+      ;;
+    --upgrade)
+      UPGRADE="true"
       shift 1
       ;;
     --with-nginx)
@@ -122,6 +135,16 @@ if [[ "$WITH_NGINX" == "true" ]]; then
   NEXTJS_BIND_HOST="127.0.0.1"
 fi
 
+if [[ -z "$SERVICE_USER" ]]; then
+  echo "--service-user cannot be empty."
+  exit 1
+fi
+
+if [[ "$FORCE" == "true" && "$UPGRADE" == "true" ]]; then
+  echo "--force and --upgrade cannot be used together."
+  exit 1
+fi
+
 for port_var in NEXTJS_PORT FASTAPI_PORT MCP_PORT; do
   port_val="${!port_var}"
   if ! [[ "$port_val" =~ ^[0-9]+$ ]] || (( port_val < 1 || port_val > 65535 )); then
@@ -129,6 +152,25 @@ for port_var in NEXTJS_PORT FASTAPI_PORT MCP_PORT; do
     exit 1
   fi
 done
+
+wait_for_http() {
+  local url="$1"
+  local name="$2"
+  local attempts="${3:-30}"
+  local sleep_seconds="${4:-2}"
+  local i
+
+  for (( i=1; i<=attempts; i++ )); do
+    if curl -fsS "$url" >/dev/null 2>&1; then
+      echo "  ${name} OK (${url})"
+      return 0
+    fi
+    sleep "$sleep_seconds"
+  done
+
+  echo "  ${name} check failed (${url})"
+  return 1
+}
 
 echo "[1/10] Installing base packages..."
 export DEBIAN_FRONTEND=noninteractive
@@ -173,24 +215,53 @@ fi
 echo "[4/10] Installing Python 3.11 via uv..."
 uv python install 3.11
 
-echo "[5/10] Preparing directories..."
+echo "[5/10] Preparing directories and service user..."
 mkdir -p "$(dirname "$INSTALL_DIR")"
-if [[ -d "$INSTALL_DIR/.git" && "$FORCE" != "true" ]]; then
-  echo "Install dir already has a git repo: $INSTALL_DIR"
-  echo "Use --force to reinstall."
+
+if [[ -d "$INSTALL_DIR" && ! -d "$INSTALL_DIR/.git" && "$FORCE" != "true" ]]; then
+  echo "Install dir exists but is not a git repo: $INSTALL_DIR"
+  echo "Use --force to replace it."
   exit 1
 fi
+
 if [[ "$FORCE" == "true" && -d "$INSTALL_DIR" ]]; then
   rm -rf "$INSTALL_DIR"
 fi
+
+if [[ "$UPGRADE" != "true" && -d "$INSTALL_DIR/.git" ]]; then
+  echo "Install dir already has a git repo: $INSTALL_DIR"
+  echo "Use --upgrade to update existing installation, or --force to reinstall."
+  exit 1
+fi
+
 mkdir -p "$APP_DATA_DIRECTORY"/{exports,uploads,images,fonts}
+mkdir -p "$TEMP_DIR"
 chmod -R 755 "$APP_DATA_DIRECTORY"
 
-echo "[6/10] Cloning repository..."
-git clone "$REPO_URL" "$INSTALL_DIR"
-cd "$INSTALL_DIR"
+if [[ "$SERVICE_USER" != "root" ]]; then
+  if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
+    useradd --system --create-home --shell /usr/sbin/nologin "$SERVICE_USER"
+  fi
+fi
+SERVICE_GROUP="$(id -gn "$SERVICE_USER")"
+
+echo "[6/10] Fetching repository..."
+if [[ -d "$INSTALL_DIR/.git" ]]; then
+  cd "$INSTALL_DIR"
+  current_remote="$(git remote get-url origin || true)"
+  if [[ "$current_remote" != "$REPO_URL" ]]; then
+    git remote set-url origin "$REPO_URL"
+  fi
+else
+  git clone "$REPO_URL" "$INSTALL_DIR"
+  cd "$INSTALL_DIR"
+fi
+
 git fetch --all --tags --prune
 git checkout "$REF"
+if git ls-remote --heads origin "$REF" | grep -q .; then
+  git pull --ff-only origin "$REF"
+fi
 
 echo "[7/10] Building FastAPI + Next.js..."
 cd "$INSTALL_DIR/servers/fastapi"
@@ -205,8 +276,7 @@ ENV_FILE="/etc/presenton.env"
 FASTAPI_SERVICE="/etc/systemd/system/presenton-fastapi.service"
 MCP_SERVICE="/etc/systemd/system/presenton-mcp.service"
 NEXTJS_SERVICE="/etc/systemd/system/presenton-nextjs.service"
-TEMP_DIR="/tmp/presenton"
-mkdir -p "$TEMP_DIR"
+chown -R "$SERVICE_USER:$SERVICE_GROUP" "$APP_DATA_DIRECTORY" "$TEMP_DIR" "$INSTALL_DIR"
 
 PYTHON_BIN="$INSTALL_DIR/servers/fastapi/.venv/bin/python"
 if [[ ! -x "$PYTHON_BIN" ]]; then
@@ -223,11 +293,18 @@ ENABLE_OLLAMA=$ENABLE_OLLAMA
 CAN_CHANGE_KEYS=true
 LLM=openai
 DISABLE_ANONYMOUS_TELEMETRY=true
+DISABLE_ANONYMOUS_TRACKING=true
 PRESENTON_NEXTJS_INTERNAL_URL=http://127.0.0.1:$NEXTJS_PORT
 PRESENTON_FASTAPI_INTERNAL_URL=http://127.0.0.1:$FASTAPI_PORT
 PRESENTON_NEXTJS_BIND_HOST=$NEXTJS_BIND_HOST
 EOF_ENV
-chmod 600 "$ENV_FILE"
+if [[ "$SERVICE_USER" == "root" ]]; then
+  chown root:root "$ENV_FILE"
+  chmod 600 "$ENV_FILE"
+else
+  chown root:"$SERVICE_GROUP" "$ENV_FILE"
+  chmod 640 "$ENV_FILE"
+fi
 
 cat >"$FASTAPI_SERVICE" <<EOF_FASTAPI
 [Unit]
@@ -236,7 +313,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
+User=$SERVICE_USER
+Group=$SERVICE_GROUP
 WorkingDirectory=$INSTALL_DIR/servers/fastapi
 EnvironmentFile=$ENV_FILE
 Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -256,7 +334,8 @@ Requires=presenton-fastapi.service
 
 [Service]
 Type=simple
-User=root
+User=$SERVICE_USER
+Group=$SERVICE_GROUP
 WorkingDirectory=$INSTALL_DIR/servers/fastapi
 EnvironmentFile=$ENV_FILE
 Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -276,7 +355,8 @@ Requires=presenton-fastapi.service
 
 [Service]
 Type=simple
-User=root
+User=$SERVICE_USER
+Group=$SERVICE_GROUP
 WorkingDirectory=$INSTALL_DIR/servers/nextjs
 EnvironmentFile=$ENV_FILE
 Environment="NODE_ENV=production"
@@ -325,12 +405,29 @@ systemctl enable --now presenton-fastapi presenton-mcp presenton-nextjs
 
 NEXT_HEALTH_URL="http://127.0.0.1:$NEXTJS_PORT/"
 FASTAPI_HEALTH_URL="http://127.0.0.1:$FASTAPI_PORT/docs"
-echo "Health checks:"
-curl -fsS "$NEXT_HEALTH_URL" >/dev/null && echo "  Next.js OK ($NEXT_HEALTH_URL)" || echo "  Next.js check failed ($NEXT_HEALTH_URL)"
-curl -fsS "$FASTAPI_HEALTH_URL" >/dev/null && echo "  FastAPI OK ($FASTAPI_HEALTH_URL)" || echo "  FastAPI check failed ($FASTAPI_HEALTH_URL)"
+FASTAPI_BUSINESS_HEALTH_URL="http://127.0.0.1:$FASTAPI_PORT/api/v1/ppt/ollama/models/supported"
+NEXT_PROXY_HEALTH_URL="http://127.0.0.1:$NEXTJS_PORT/api/v1/ppt/ollama/models/supported"
+HEALTH_FAILED=0
+echo "Health checks (with retries):"
+if ! wait_for_http "$NEXT_HEALTH_URL" "Next.js"; then
+  HEALTH_FAILED=1
+fi
+if ! wait_for_http "$FASTAPI_HEALTH_URL" "FastAPI"; then
+  HEALTH_FAILED=1
+fi
+if ! wait_for_http "$FASTAPI_BUSINESS_HEALTH_URL" "FastAPI business API"; then
+  HEALTH_FAILED=1
+fi
+if ! wait_for_http "$NEXT_PROXY_HEALTH_URL" "Next.js -> FastAPI proxy API"; then
+  HEALTH_FAILED=1
+fi
 
 echo
-echo "Install completed."
+if [[ "$UPGRADE" == "true" ]]; then
+  echo "Upgrade completed."
+else
+  echo "Install completed."
+fi
 if [[ "$WITH_NGINX" == "true" ]]; then
   echo "Open:"
   echo "  http://$DOMAIN"
@@ -344,3 +441,9 @@ echo "Logs:"
 echo "  journalctl -u presenton-fastapi -f"
 echo "  journalctl -u presenton-nextjs -f"
 echo "  journalctl -u presenton-mcp -f"
+
+if [[ "$HEALTH_FAILED" -ne 0 ]]; then
+  echo
+  echo "One or more health checks failed. Please review service logs above."
+  exit 1
+fi
