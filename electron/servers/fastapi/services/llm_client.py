@@ -1,7 +1,10 @@
 import asyncio
 import dirtyjson
 import json
+import logging
 from typing import AsyncGenerator, List, Optional, Dict, Any
+
+logger = logging.getLogger(__name__)
 from fastapi import HTTPException
 from openai import APIStatusError, AsyncOpenAI, OpenAIError
 from openai.types.chat.chat_completion_chunk import (
@@ -678,6 +681,36 @@ class LLMClient:
             )
         return content
 
+    def _parse_openai_structured_payload(self, content: Any) -> dict | None:
+        """Parse a JSON object from message content or tool arguments.
+
+        Returns None when input is empty, not a JSON object, or unparsable so
+        ``generate_structured`` can retry instead of raising.
+        """
+        if content is None:
+            return None
+        if isinstance(content, dict):
+            return dict(content)
+        raw = str(content).strip()
+        if not raw:
+            return None
+        try:
+            parsed = dirtyjson.loads(raw)
+        except Exception as exc:
+            logger.warning(
+                "OpenAI structured payload parse failed: %s preview=%r",
+                exc,
+                raw[:200],
+            )
+            return None
+        if isinstance(parsed, dict):
+            return dict(parsed)
+        logger.warning(
+            "OpenAI structured payload is not a JSON object: type=%s",
+            type(parsed).__name__,
+        )
+        return None
+
     # ? Generate Structured Content
     async def _generate_openai_structured(
         self,
@@ -748,14 +781,20 @@ class LLMClient:
 
         tool_calls = response.choices[0].message.tool_calls
         has_response_schema = False
+        schema_tool_arguments: str | None = None
 
         if tool_calls:
             for tool_call in tool_calls:
                 if tool_call.function.name == "ResponseSchema":
-                    content = tool_call.function.arguments
                     has_response_schema = True
+                    cand = tool_call.function.arguments
+                    if cand is not None and str(cand).strip():
+                        schema_tool_arguments = str(cand).strip()
+                        break
 
-            if not has_response_schema:
+            if has_response_schema:
+                content = schema_tool_arguments
+            else:
                 parsed_tool_calls = [
                     OpenAIToolCall(
                         id=tool_call.id,
@@ -791,9 +830,11 @@ class LLMClient:
                     extra_body=extra_body,
                     depth=depth + 1,
                 )
-        if content:
+        if content is not None:
             if depth == 0:
-                return dict(dirtyjson.loads(content))
+                return self._parse_openai_structured_payload(content)
+            if isinstance(content, str) and not content.strip():
+                return None
             return content
         return None
 
