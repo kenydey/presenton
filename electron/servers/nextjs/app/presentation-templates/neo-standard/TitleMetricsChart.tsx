@@ -98,6 +98,62 @@ const dynamicSlideLayout: React.FC<{ data: Partial<z.infer<typeof Schema>> }> = 
     const { title, description, metrics, chart } = data;
     const chartType = chart?.chartType || 'bar';
 
+    const rows = chart?.data ?? [];
+    const categories = rows.map((r: any) => String(r.label ?? ""));
+    const values1 = rows.map((r: any) =>
+        typeof r.value1 === "number" ? r.value1 : parseFloat(String(r.value1 ?? 0)) || 0
+    );
+    const values2 = rows.map((r: any) =>
+        r.value2 === undefined
+            ? 0
+            : typeof r.value2 === "number"
+            ? r.value2
+            : parseFloat(String(r.value2)) || 0
+    );
+    const hasSecondSeries = rows.some((r: any) => r.value2 !== undefined);
+
+    const simplifiedChartType =
+        chartType?.includes("pie") || chartType?.includes("donut")
+            ? "pie"
+            : chartType?.includes("line") || chartType?.includes("area")
+            ? "line"
+            : chartType?.includes("horizontalBar")
+            ? "horizontalBar"
+            : "bar";
+
+    const pieValues = rows.map(
+        (r: any) =>
+            (typeof r.value1 === "number" ? r.value1 : 0) +
+            (typeof r.value2 === "number"
+                ? r.value2
+                : r.value2
+                ? parseFloat(String(r.value2))
+                : 0)
+    );
+
+    const exportSeries =
+        simplifiedChartType === "pie"
+            ? [{ name: chart?.seriesNames?.[0] ?? "Series 1", values: pieValues }]
+            : [
+                  { name: chart?.seriesNames?.[0] ?? "Series 1", values: values1 },
+                  ...(hasSecondSeries
+                      ? [
+                            {
+                                name: chart?.seriesNames?.[1] ?? "Series 2",
+                                values: values2,
+                            },
+                        ]
+                      : []),
+              ];
+
+    const exportChartConfig = {
+        chartType: simplifiedChartType,
+        categories,
+        series: exportSeries,
+        showLegend: simplifiedChartType !== "pie",
+        showLabels: undefined,
+    };
+
     const renderChart = () => {
         const hasValue2 = (chart?.data?.some(row => (row.value2 ?? 0) > 0)) ?? false;
 
@@ -463,7 +519,10 @@ const dynamicSlideLayout: React.FC<{ data: Partial<z.infer<typeof Schema>> }> = 
                             </div>
                         )}
 
-                        <div className="w-full h-[400px]">
+                        <div
+                            className="w-full h-[400px]"
+                            data-chart-config={JSON.stringify(exportChartConfig)}
+                        >
 
                             {renderChart()}
 

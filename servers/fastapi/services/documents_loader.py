@@ -12,7 +12,6 @@ from constants.documents import (
     TEXT_MIME_TYPES,
     WORD_TYPES,
 )
-from services.docling_service import DoclingService
 
 
 def _strip_optional_yaml_front_matter(text: str) -> str:
@@ -38,10 +37,18 @@ class DocumentsLoader:
     def __init__(self, file_paths: List[str]):
         self._file_paths = file_paths
 
-        self.docling_service = DoclingService()
+        self._docling_service = None
 
         self._documents: List[str] = []
         self._images: List[List[str]] = []
+
+    @property
+    def docling_service(self):
+        if self._docling_service is None:
+            from services.docling_service import DoclingService
+
+            self._docling_service = DoclingService()
+        return self._docling_service
 
     @property
     def documents(self):

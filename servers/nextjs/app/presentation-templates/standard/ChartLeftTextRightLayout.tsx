@@ -82,6 +82,13 @@ const dynamicSlideLayout: React.FC<SlideLayoutProps> = ({ data: slideData }) => 
   const type = slideData?.chart?.type || 'bar'
 
   const showLabels = slideData?.chart?.showLabels !== false
+  const exportChartConfig = {
+    chartType: type,
+    categories: data.map((d) => d.label),
+    series: [{ name: "Series 1", values: data.map((d) => d.value) }],
+    showLegend: true,
+    showLabels,
+  }
   const axisProps = {
     tick: { fill: 'var(--background-text, #7f8491)', fontSize: 12, fontWeight: 600 },
     axisLine: { stroke: 'var(--background-text, #7f8491)' },
@@ -115,7 +122,11 @@ const dynamicSlideLayout: React.FC<SlideLayoutProps> = ({ data: slideData }) => 
           {/* Left: Recharts visualization */}
           <div className="h-full px-10 pt-8">
             <div className="w-full h-full flex items-center">
-              <div className="w-full" style={{ height: 320 }}>
+              <div
+                className="w-full"
+                style={{ height: 320 }}
+                data-chart-config={JSON.stringify(exportChartConfig)}
+              >
                 <ResponsiveContainer width="100%" height="100%">
                   {type === 'bar' ? (
                     <BarChart data={data} margin={{ top: 15, right: 20, bottom: 10, left: 0 }}>

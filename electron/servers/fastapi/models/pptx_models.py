@@ -107,7 +107,9 @@ class PptxPictureModel(BaseModel):
 
 
 class PptxShapeModel(BaseModel):
-    shape_type: Literal["textbox", "autoshape", "picture", "connector"]
+    shape_type: Literal[
+        "textbox", "autoshape", "picture", "connector", "table", "chart"
+    ]
 
 
 class PptxTextBoxModel(PptxShapeModel):
@@ -174,6 +176,33 @@ class PptxConnectorModel(PptxShapeModel):
     opacity: float = 1.0
 
 
+class PptxTableBoxModel(PptxShapeModel):
+    shape_type: Literal["table"] = "table"
+    margin: Optional[PptxSpacingModel] = None
+    fill: Optional[PptxFillModel] = None
+    stroke: Optional[PptxStrokeModel] = None
+    position: PptxPositionModel
+    columns: List[str]
+    rows: List[List[str]]
+
+
+class PptxChartSeriesModel(BaseModel):
+    name: str
+    values: List[float]
+
+
+class PptxChartBoxModel(PptxShapeModel):
+    shape_type: Literal["chart"] = "chart"
+    margin: Optional[PptxSpacingModel] = None
+    position: PptxPositionModel
+    chart_type: str
+    categories: List[str]
+    series: List[PptxChartSeriesModel]
+    showLegend: Optional[bool] = None
+    showLabels: Optional[bool] = None
+    colors: Optional[List[str]] = None
+
+
 # Define a discriminated union for shapes
 PptxShapeUnion = Annotated[
     Union[
@@ -181,6 +210,8 @@ PptxShapeUnion = Annotated[
         PptxAutoShapeBoxModel,
         PptxConnectorModel,
         PptxPictureBoxModel,
+        PptxTableBoxModel,
+        PptxChartBoxModel,
     ],
     Discriminator("shape_type"),
 ]

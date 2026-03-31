@@ -54,6 +54,46 @@ const CHART_COLORS = ['#1F8A2E', '#A7DBA8', '#4CAF50', '#81C784', '#EC4899', '#1
 const dynamicSlideLayout: React.FC<{ data: Partial<z.infer<typeof Schema>> }> = ({ data }) => {
     const { title, badgeText, topDescription, bottomDescription, graphData, chartType = 'bar' } = data;
 
+    const rows = graphData?.rows ?? [];
+    const categories = rows.map((r) => String(r.label ?? ""));
+    const values1 = rows.map((r: any) =>
+        typeof r.value1 === "number" ? r.value1 : parseFloat(String(r.value1 ?? 0)) || 0
+    );
+    const values2 = rows.map((r: any) =>
+        r.value2 === undefined
+            ? 0
+            : typeof r.value2 === "number"
+            ? r.value2
+            : parseFloat(String(r.value2)) || 0
+    );
+    const hasSecondSeries = rows.some((r: any) => r.value2 !== undefined);
+    const simplifiedChartType =
+        chartType?.includes("pie") || chartType?.includes("donut")
+            ? "pie"
+            : chartType?.includes("line") || chartType?.includes("area")
+            ? "line"
+            : chartType?.includes("horizontalBar")
+            ? "horizontalBar"
+            : "bar";
+
+    const exportChartConfig = {
+        chartType: simplifiedChartType,
+        categories,
+        series: [
+            { name: graphData?.columns?.[1] ?? "Series 1", values: values1 },
+            ...(hasSecondSeries
+                ? [
+                      {
+                          name: graphData?.columns?.[2] ?? "Series 2",
+                          values: values2,
+                      },
+                  ]
+                : []),
+        ],
+        showLegend: chartType !== "pie" && chartType !== "donut",
+        showLabels: undefined,
+    };
+
     const renderChart = () => {
         const hasValue2 = (graphData?.rows?.some(row => (row.value2 ?? 0) > 0)) ?? false;
 
@@ -388,7 +428,10 @@ const dynamicSlideLayout: React.FC<{ data: Partial<z.infer<typeof Schema>> }> = 
                     </div>
 
                     {/* Chart Area */}
-                    <div className=" flex-grow w-full min-h-0 ">
+                    <div
+                        className=" flex-grow w-full min-h-0 "
+                        data-chart-config={JSON.stringify(exportChartConfig)}
+                    >
 
                         {renderChart()}
 

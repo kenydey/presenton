@@ -573,6 +573,114 @@ const MultiChartGridSlideLayout: React.FC<MultiChartGridSlideLayoutProps> = ({ d
         return 180;
     };
 
+    const buildExportChartConfig = (chart: any) => {
+        const points: any[] = chart?.data ?? [];
+        const rawType: string = chart?.type ?? 'bar-vertical';
+
+        const simplifiedChartType =
+            rawType.includes('pie') || rawType.includes('donut')
+                ? 'pie'
+                : rawType.includes('line') || rawType.includes('area')
+                ? 'line'
+                : rawType.includes('scatter')
+                ? 'line'
+                : rawType.includes('horizontal')
+                ? 'horizontalBar'
+                : 'bar';
+
+        const legendFlag = showLegend && chartCount <= 4;
+
+        if (!points.length) {
+            return {
+                chartType: simplifiedChartType,
+                categories: [],
+                series: [{ name: 'Series 1', values: [] }],
+                showLegend: legendFlag,
+                showLabels: undefined,
+            };
+        }
+
+        const first = points[0] ?? {};
+
+        // multi-series: { name, values: { [seriesName]: number } }
+        if (typeof first?.values === 'object' && first?.values !== null) {
+            const categories = points.map((p) => String(p?.name ?? ''));
+            const seriesNames: string[] =
+                chart?.series && chart.series.length > 0
+                    ? chart.series
+                    : Object.keys(first.values ?? {});
+
+            const seriesModels = seriesNames.map((s: string) => ({
+                name: s,
+                values: points.map((p) => Number(p?.values?.[s] ?? 0)),
+            }));
+
+            return {
+                chartType: simplifiedChartType,
+                categories,
+                series: seriesModels,
+                showLegend: legendFlag,
+                showLabels: undefined,
+            };
+        }
+
+        // diverging: { name, positive, negative }
+        if (first?.positive !== undefined || first?.negative !== undefined) {
+            const categories = points.map((p) => String(p?.name ?? ''));
+            const seriesNames: string[] =
+                chart?.series && chart.series.length >= 2
+                    ? chart.series
+                    : ['Positive', 'Negative'];
+
+            return {
+                chartType: 'bar',
+                categories,
+                series: [
+                    {
+                        name: seriesNames[0],
+                        values: points.map((p) => Number(p?.positive ?? 0)),
+                    },
+                    {
+                        name: seriesNames[1],
+                        values: points.map((p) => Number(p?.negative ?? 0)),
+                    },
+                ],
+                showLegend: legendFlag,
+                showLabels: undefined,
+            };
+        }
+
+        // scatter: { x, y, name? }
+        if (first?.x !== undefined && first?.y !== undefined) {
+            const categories = points.map((p, idx) =>
+                p?.name ? String(p.name) : `Point ${idx + 1}`
+            );
+            return {
+                chartType: 'line',
+                categories,
+                series: [
+                    {
+                        name: chart?.series?.[0] ?? 'Series 1',
+                        values: points.map((p) => Number(p?.y ?? 0)),
+                    },
+                ],
+                showLegend: legendFlag,
+                showLabels: undefined,
+            };
+        }
+
+        // simple: { name, value }
+        const categories = points.map((p) => String(p?.name ?? ''));
+        const values = points.map((p) => Number(p?.value ?? 0));
+        return {
+            chartType: simplifiedChartType,
+            categories,
+            series: [{ name: chart?.series?.[0] ?? 'Series 1', values }],
+            showLegend: legendFlag,
+            showLabels: undefined,
+        };
+    };
+
     return (
         <>
             <link
@@ -639,6 +747,7 @@ const MultiChartGridSlideLayout: React.FC<MultiChartGridSlideLayoutProps> = ({ d
                                 key={index}
                                 className=" backdrop-blur-sm rounded-xl border border-gray-100/80 shadow-sm  flex flex-col overflow-hidden"
                                 style={{ borderColor: 'var(--stroke,#F8F9FA)', backgroundColor: 'var(--card-color,#FFFFFF)' }}
+                                data-chart-config={JSON.stringify(buildExportChartConfig(chart))}
                             >
                                 {/* Chart Header */}
                                 <div className="px-4 pt-3 pb-1">

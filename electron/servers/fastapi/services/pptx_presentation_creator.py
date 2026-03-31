@@ -11,6 +11,8 @@ from pptx import Presentation
 from pptx.shapes.autoshape import Shape
 from pptx.slide import Slide
 from pptx.text.text import _Paragraph, TextFrame, Font, _Run
+from pptx.chart.data import CategoryChartData
+from pptx.enum.chart import XL_CHART_TYPE
 from pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from lxml.etree import fromstring, tostring
 from PIL import Image
@@ -22,9 +24,11 @@ from pptx.dml.color import RGBColor
 from models.pptx_models import (
     PptxAutoShapeBoxModel,
     PptxBoxShapeEnum,
+    PptxChartBoxModel,
     PptxConnectorModel,
     PptxFillModel,
     PptxFontModel,
+    PptxTableBoxModel,
     PptxParagraphModel,
     PptxPictureBoxModel,
     PptxPositionModel,
@@ -300,6 +304,12 @@ class PptxPresentationCreator:
             elif model_type is PptxTextBoxModel:
                 self.add_textbox(slide, shape_model)
 
+            elif model_type is PptxTableBoxModel:
+                self.add_table(slide, shape_model)
+
+            elif model_type is PptxChartBoxModel:
+                self.add_chart(slide, shape_model)
+
             elif model_type is PptxConnectorModel:
                 self.add_connector(slide, shape_model)
 
@@ -401,6 +411,121 @@ class PptxPresentationCreator:
         self.apply_fill_to_shape(textbox_shape, textbox_model.fill)
         self.apply_margin_to_text_box(textbox, textbox_model.margin)
         self.add_paragraphs(textbox, textbox_model.paragraphs)
+
+    def add_table(self, slide: Slide, table_model: PptxTableBoxModel):
+        position = table_model.position
+        if table_model.margin:
+            position = self.get_margined_position(position, table_model.margin)
+
+        body_rows = table_model.rows or []
+        body_row_count = len(body_rows)
+        col_count_in_data = len(table_model.columns or [])
+        col_count_in_body = max((len(r) for r in body_rows), default=0)
+        cols_count = max(col_count_in_data, col_count_in_body, 1)
+
+        rows_count = max(body_row_count + 1, 1)  # +1 header row
+
+        table_shape = slide.shapes.add_table(
+            rows_count, cols_count, *position.to_pt_list()
+        )
+        table = table_shape.table
+
+        # Header row.
+        for c in range(cols_count):
+            header_text = (
+                table_model.columns[c]
+                if table_model.columns and c < len(table_model.columns)
+                else ""
+            )
+            cell = table.cell(0, c)
+            cell.text = header_text
+            if table_model.fill:
+                try:
+                    cell.fill.solid()
+                    cell.fill.fore_color.rgb = RGBColor.from_string(
+                        table_model.fill.color
+                    )
+                    self.set_fill_opacity(cell.fill, table_model.fill.opacity)
+                except Exception:
+                    pass
+            for paragraph in cell.text_frame.paragraphs:
+                for run in paragraph.runs:
+                    run.font.size = Pt(12)
+                    run.font.bold = True
+
+        # Body cells.
+        for r in range(body_row_count):
+            for c in range(cols_count):
+                cell_text = ""
+                if r < body_row_count and c < len(body_rows[r]):
+                    cell_text = body_rows[r][c]
+                cell = table.cell(r + 1, c)
+                cell.text = cell_text
+                for paragraph in cell.text_frame.paragraphs:
+                    for run in paragraph.runs:
+                        run.font.size = Pt(11)
+
+    def add_chart(self, slide: Slide, chart_model: PptxChartBoxModel):
+        position = chart_model.position
+        if chart_model.margin:
+            position = self.get_margined_position(position, chart_model.margin)
+
+        categories = chart_model.categories or []
+        categories = [str(c) for c in categories]
+        series_models = chart_model.series or []
+
+        chart_data = CategoryChartData()
+        chart_data.categories = categories
+
+        for series_model in series_models:
+            values = series_model.values or []
+            if categories:
+                if len(values) < len(categories):
+                    values = values + [0.0] * (len(categories) - len(values))
+                elif len(values) > len(categories):
+                    values = values[: len(categories)]
+            chart_data.add_series(str(series_model.name or "Series"), values)
+
+        chart_type = (chart_model.chart_type or "").lower()
+        pptx_chart_type = XL_CHART_TYPE.COLUMN_CLUSTERED
+        if chart_type == "bar":
+            pptx_chart_type = XL_CHART_TYPE.COLUMN_CLUSTERED
+        elif chart_type == "horizontalbar":
+            pptx_chart_type = XL_CHART_TYPE.BAR_CLUSTERED
+        elif chart_type == "line":
+            pptx_chart_type = XL_CHART_TYPE.LINE_MARKERS
+        elif chart_type == "pie":
+            pptx_chart_type = XL_CHART_TYPE.PIE
+
+        chart_shape = slide.shapes.add_chart(
+            pptx_chart_type, *position.to_pt_list(), chart_data
+        )
+        chart = chart_shape.chart
+
+        if chart_model.showLegend is not None:
+            chart.has_legend = bool(chart_model.showLegend)
+
+        if chart_model.colors:
+            for idx, color in enumerate(chart_model.colors):
+                try:
+                    series = chart.series[idx]
+                except Exception:
+                    break
+                if not color:
+                    continue
+                try:
+                    series.format.fill.solid()
+                    series.format.fill.fore_color.rgb = RGBColor.from_string(
+                        str(color).lstrip("#")
+                    )
+                except Exception:
+                    try:
+                        series.format.line.fill.solid()
+                        series.format.line.fill.fore_color.rgb = RGBColor.from_string(
+                            str(color).lstrip("#")
+                        )
+                    except Exception:
+                        pass
 
     def add_paragraphs(
         self, textbox: TextFrame, paragraph_models: List[PptxParagraphModel]
