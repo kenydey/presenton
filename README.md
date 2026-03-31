@@ -198,6 +198,8 @@ Use this when you host on a Linux VPS without Docker: install system packages (C
 For one-command “open-box” setup on Ubuntu/Debian, run
 <p>
 wget https://raw.githubusercontent.com/kenydey/presenton/refs/heads/main/scripts/install-presenton-vps.sh
+  </p>
+  <p>
 sudo bash install-presenton-vps.sh
 </p>
 It deploys from `https://github.com/kenydey/presenton`, defaults to direct mode (`Next.js:5000`, `FastAPI:8000`, `MCP:8001`), and supports optional `--with-nginx` + certbot HTTPS.
