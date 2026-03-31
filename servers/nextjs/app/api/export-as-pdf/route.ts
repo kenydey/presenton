@@ -3,10 +3,12 @@ import fs from "fs";
 import puppeteer from "puppeteer";
 
 import { sanitizeFilename } from "@/app/(presentation-generator)/utils/others";
+import { getNextjsInternalBaseUrl } from "@/app/api/_utils/internalBaseUrl";
 import { NextResponse, NextRequest } from "next/server";
 
 export async function POST(req: NextRequest) {
   const { id, title } = await req.json();
+  const nextjsInternalBaseUrl = getNextjsInternalBaseUrl();
   if (!id) {
     return NextResponse.json(
       { error: "Missing Presentation ID" },
@@ -34,7 +36,7 @@ export async function POST(req: NextRequest) {
   page.setDefaultNavigationTimeout(300000);
   page.setDefaultTimeout(300000);
 
-  await page.goto(`http://localhost/pdf-maker?id=${id}`, {
+  await page.goto(`${nextjsInternalBaseUrl}/pdf-maker?id=${id}`, {
     waitUntil: "networkidle0",
     timeout: 300000,
   });

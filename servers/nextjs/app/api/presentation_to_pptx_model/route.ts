@@ -11,6 +11,7 @@ import fs from "fs";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
 import sharp from "sharp";
+import { getNextjsInternalBaseUrl } from "@/app/api/_utils/internalBaseUrl";
 
 interface GetAllChildElementsAttributesArgs {
   element: ElementHandle<Element>;
@@ -94,11 +95,12 @@ async function getBrowserAndPage(id: string): Promise<[Browser, Page]> {
   });
 
   const page = await browser.newPage();
+  const internalBaseUrl = getNextjsInternalBaseUrl();
 
   await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
   page.setDefaultNavigationTimeout(300000);
   page.setDefaultTimeout(300000);
-  await page.goto(`http://localhost/pdf-maker?id=${id}`, {
+  await page.goto(`${internalBaseUrl}/pdf-maker?id=${id}`, {
     waitUntil: "networkidle0",
     timeout: 300000,
   });
