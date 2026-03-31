@@ -80,6 +80,9 @@ async function getBrowserAndPage(id: string): Promise<[Browser, Page]> {
   const browser = await puppeteer.launch({
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
     headless: true,
+    // Default CDP protocol timeout is 180s; our page waits use 300s — align to avoid
+    // Runtime.callFunctionOn timed out while waitForSelector is still in progress.
+    protocolTimeout: 360_000,
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
@@ -100,11 +103,41 @@ async function getBrowserAndPage(id: string): Promise<[Browser, Page]> {
   await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
   page.setDefaultNavigationTimeout(300000);
   page.setDefaultTimeout(300000);
+  // `networkidle0` often never completes on Next.js dev (HMR / open connections).
   await page.goto(`${internalBaseUrl}/pdf-maker?id=${id}`, {
-    waitUntil: "networkidle0",
+    waitUntil: "load",
     timeout: 300000,
   });
+  await waitForPdfMakerExportReady(page);
   return [browser, page];
+}
+
+/** Wait until client set data-pdf-maker-status to ready or error, then validate slides. */
+async function waitForPdfMakerExportReady(page: Page) {
+  await page.waitForSelector("#presentation-slides-wrapper", { timeout: 300000 });
+  await page.waitForFunction(
+    () => {
+      const el = document.querySelector("#presentation-slides-wrapper");
+      const st = el?.getAttribute("data-pdf-maker-status");
+      return st === "ready" || st === "error";
+    },
+    { timeout: 300000, polling: 250 }
+  );
+  const status = await page.$eval("#presentation-slides-wrapper", (el) =>
+    el.getAttribute("data-pdf-maker-status")
+  );
+  if (status === "error") {
+    throw new ApiError(
+      "Presentation failed to load for export (API error, invalid id, or no slides)"
+    );
+  }
+  const slideCount = await page.$$eval(
+    "#presentation-slides-wrapper [data-speaker-note]",
+    (els) => els.length
+  );
+  if (slideCount === 0) {
+    throw new ApiError("Presentation slides not found");
+  }
 }
 
 async function closeBrowserAndPage(browser: Browser | null, page: Page | null) {
@@ -265,6 +298,7 @@ async function getSlidesAndSpeakerNotes(page: Page) {
 async function getSlidesWrapper(page: Page): Promise<ElementHandle<Element>> {
   const slides_wrapper = await page.$("#presentation-slides-wrapper");
   if (!slides_wrapper) {
+    const url = page.url();
     throw new ApiError("Presentation slides not found");
   }
   return slides_wrapper;

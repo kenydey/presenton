@@ -1,6 +1,7 @@
 import { ApiError } from "@/models/errors";
 import { NextRequest, NextResponse } from "next/server";
 import puppeteer, { Browser, ElementHandle, Page } from "puppeteer";
+import { getNextjsInternalBaseUrl } from "@/app/api/_utils/internalBaseUrl";
 import {
   ElementAttributes,
   SlideAttributesResult,
@@ -99,6 +100,7 @@ async function getBrowserAndPage(id: string): Promise<[Browser, Page]> {
   const browser = await puppeteer.launch({
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
     headless: true,
+    protocolTimeout: 360_000,
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
@@ -114,15 +116,44 @@ async function getBrowserAndPage(id: string): Promise<[Browser, Page]> {
   });
 
   const page = await browser.newPage();
+  const internalBaseUrl = getNextjsInternalBaseUrl();
 
   await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
   page.setDefaultNavigationTimeout(300000);
   page.setDefaultTimeout(300000);
-  await page.goto(`http://localhost/pdf-maker?id=${id}`, {
-    waitUntil: "networkidle0",
+  await page.goto(`${internalBaseUrl}/pdf-maker?id=${id}`, {
+    waitUntil: "load",
     timeout: 300000,
   });
+  await waitForPdfMakerExportReady(page);
   return [browser, page];
+}
+
+async function waitForPdfMakerExportReady(page: Page) {
+  await page.waitForSelector("#presentation-slides-wrapper", { timeout: 300000 });
+  await page.waitForFunction(
+    () => {
+      const el = document.querySelector("#presentation-slides-wrapper");
+      const st = el?.getAttribute("data-pdf-maker-status");
+      return st === "ready" || st === "error";
+    },
+    { timeout: 300000, polling: 250 }
+  );
+  const status = await page.$eval("#presentation-slides-wrapper", (el) =>
+    el.getAttribute("data-pdf-maker-status")
+  );
+  if (status === "error") {
+    throw new ApiError(
+      "Presentation failed to load for export (API error, invalid id, or no slides)"
+    );
+  }
+  const slideCount = await page.$$eval(
+    "#presentation-slides-wrapper [data-speaker-note]",
+    (els) => els.length
+  );
+  if (slideCount === 0) {
+    throw new ApiError("Presentation slides not found");
+  }
 }
 
 async function closeBrowserAndPage(browser: Browser | null, page: Page | null) {
