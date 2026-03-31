@@ -47,6 +47,8 @@ EMAIL=""
 NEXTJS_BIND_HOST="0.0.0.0"
 SERVICE_USER="presenton"
 TEMP_DIR="/tmp/presenton"
+UV_BIN="/usr/local/bin/uv"
+UV_PYTHON_INSTALL_DIR=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -145,6 +147,8 @@ if [[ "$FORCE" == "true" && "$UPGRADE" == "true" ]]; then
   exit 1
 fi
 
+UV_PYTHON_INSTALL_DIR="$INSTALL_DIR/.uv-python"
+
 for port_var in NEXTJS_PORT FASTAPI_PORT MCP_PORT; do
   port_val="${!port_var}"
   if ! [[ "$port_val" =~ ^[0-9]+$ ]] || (( port_val < 1 || port_val > 65535 )); then
@@ -170,6 +174,15 @@ wait_for_http() {
 
   echo "  ${name} check failed (${url})"
   return 1
+}
+
+run_as_service_user() {
+  local cmd="$1"
+  if [[ "$SERVICE_USER" == "root" ]]; then
+    bash -lc "$cmd"
+  else
+    runuser -u "$SERVICE_USER" -- bash -lc "$cmd"
+  fi
 }
 
 echo "[1/10] Installing base packages..."
@@ -205,15 +218,16 @@ curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 apt-get install -y nodejs
 
 echo "[3/10] Installing uv..."
+export UV_INSTALL_DIR="/usr/local/bin"
 curl -LsSf https://astral.sh/uv/install.sh | sh
-export PATH="$HOME/.local/bin:$PATH"
-if ! command -v uv >/dev/null 2>&1; then
+if [[ ! -x "$UV_BIN" ]]; then
   echo "uv not found after install."
   exit 1
 fi
 
 echo "[4/10] Installing Python 3.11 via uv..."
-uv python install 3.11
+mkdir -p "$UV_PYTHON_INSTALL_DIR"
+UV_PYTHON_INSTALL_DIR="$UV_PYTHON_INSTALL_DIR" "$UV_BIN" python install 3.11
 
 echo "[5/10] Preparing directories and service user..."
 mkdir -p "$(dirname "$INSTALL_DIR")"
@@ -244,6 +258,7 @@ if [[ "$SERVICE_USER" != "root" ]]; then
   fi
 fi
 SERVICE_GROUP="$(id -gn "$SERVICE_USER")"
+chown -R "$SERVICE_USER:$SERVICE_GROUP" "$APP_DATA_DIRECTORY" "$TEMP_DIR" "$UV_PYTHON_INSTALL_DIR"
 
 echo "[6/10] Fetching repository..."
 if [[ -d "$INSTALL_DIR/.git" ]]; then
@@ -262,14 +277,11 @@ git checkout "$REF"
 if git ls-remote --heads origin "$REF" | grep -q .; then
   git pull --ff-only origin "$REF"
 fi
+chown -R "$SERVICE_USER:$SERVICE_GROUP" "$INSTALL_DIR"
 
 echo "[7/10] Building FastAPI + Next.js..."
-cd "$INSTALL_DIR/servers/fastapi"
-uv sync --frozen
-
-cd "$INSTALL_DIR/servers/nextjs"
-npm ci
-npm run build
+run_as_service_user "cd '$INSTALL_DIR/servers/fastapi' && UV_PYTHON_INSTALL_DIR='$UV_PYTHON_INSTALL_DIR' '$UV_BIN' sync --frozen"
+run_as_service_user "cd '$INSTALL_DIR/servers/nextjs' && npm ci && npm run build"
 
 echo "[8/10] Writing environment and systemd units..."
 ENV_FILE="/etc/presenton.env"
