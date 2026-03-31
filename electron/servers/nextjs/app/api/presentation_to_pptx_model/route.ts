@@ -153,6 +153,13 @@ async function postProcessSlidesAttributes(
   for (const [index, slideAttributes] of slidesAttributes.entries()) {
     for (const element of slideAttributes.elements) {
       if (element.should_screenshot) {
+        // Native table/chart: skip screenshot and keep structured data for PPTX export.
+        if (element.tableData || element.chartData) {
+          element.should_screenshot = false;
+          element.element = undefined;
+          continue;
+        }
+
         const screenshotPath = await screenshotElement(element, screenshotsDir);
         element.imageSrc = screenshotPath;
         element.should_screenshot = false;
@@ -409,7 +416,11 @@ async function getAllChildElementsAttributes({
     allResults.push({ attributes, depth });
 
     // If the element is a canvas, or table, we don't need to go deeper
-    if (attributes.should_screenshot && attributes.tagName !== "svg") {
+    if (
+      attributes.tableData ||
+      attributes.chartData ||
+      (attributes.should_screenshot && attributes.tagName !== "svg")
+    ) {
       continue;
     }
 
@@ -1173,6 +1184,202 @@ async function getElementAttributes(
 
       const filters = parseFilters(computedStyles);
 
+      // Native table export: parse <table> into structured rows/columns.
+      let tableData:
+        | { columns: string[]; rows: string[][] }
+        | undefined = undefined;
+      if (tagName === "table") {
+        const tableEl = el as HTMLTableElement;
+
+        const theadThs = Array.from(
+          tableEl.querySelectorAll("thead th")
+        ) as HTMLTableCellElement[];
+        const columnsFromThead = theadThs
+          .map((th) => (th.textContent || "").trim())
+          .filter((t) => t.length > 0);
+
+        const rowTrs = Array.from(
+          tableEl.querySelectorAll("tbody tr")
+        ) as HTMLTableRowElement[];
+
+        const anyRowTrs =
+          rowTrs.length > 0
+            ? rowTrs
+            : (Array.from(
+                tableEl.querySelectorAll("tr")
+              ) as HTMLTableRowElement[]);
+
+        let inferredColumns = columnsFromThead;
+        if (inferredColumns.length === 0 && anyRowTrs[0]) {
+          const firstRowCells = Array.from(
+            anyRowTrs[0].querySelectorAll("td,th") ?? []
+          ) as HTMLTableCellElement[];
+          inferredColumns = firstRowCells
+            .map((cell) => (cell.textContent || "").trim())
+            .filter((t) => t.length > 0);
+        }
+
+        const columnsCount = Math.max(inferredColumns.length, 0);
+
+        const rows = anyRowTrs
+          .map((tr) => {
+            const cells = Array.from(
+              tr.querySelectorAll("td,th")
+            ) as HTMLTableCellElement[];
+            const rowCells = cells.map(
+              (cell) => (cell.textContent || "").trim()
+            );
+            if (columnsCount === 0) return rowCells;
+            const padded = Array.from(
+              { length: columnsCount },
+              (_, i) => rowCells[i] ?? ""
+            );
+            return padded;
+          })
+          .filter((r) => r.some((cell) => cell.length > 0));
+
+        tableData = {
+          columns: inferredColumns.length > 0 ? inferredColumns : [],
+          rows,
+        };
+      }
+
+      // Native chart export: parse structured chart config from wrapper dataset.
+      let chartData:
+        | {
+            chartType: string;
+            categories: string[];
+            series: Array<{ name: string; values: number[] }>;
+            showLegend?: boolean;
+            showLabels?: boolean;
+            colors?: string[];
+          }
+        | undefined = undefined;
+      if (tagName === "svg" || tagName === "canvas") {
+        const chartWrapper = (el as Element).closest(
+          "[data-chart-config],[data-pp-chart-config]"
+        ) as HTMLElement | null;
+
+        if (chartWrapper) {
+          // Only attach chartData to the main <svg>/<canvas> so we don't create duplicates.
+          const target = chartWrapper.querySelector("svg,canvas");
+          if (target && target === el) {
+            const cfgStr =
+              chartWrapper.getAttribute("data-chart-config") ||
+              chartWrapper.getAttribute("data-pp-chart-config");
+            if (cfgStr) {
+              try {
+                const cfg = JSON.parse(cfgStr);
+                const chartType =
+                  typeof cfg.chartType === "string" ? cfg.chartType : "line";
+                const categories = Array.isArray(cfg.categories)
+                  ? cfg.categories.map((c: any) => String(c))
+                  : [];
+                const series = Array.isArray(cfg.series)
+                  ? cfg.series
+                      .map((s: any) => {
+                        const name =
+                          typeof s?.name === "string" ? s.name : "Series";
+                        const rawValues = Array.isArray(s?.values)
+                          ? s.values
+                          : Array.isArray(s?.data)
+                          ? s.data
+                          : [];
+                        const values = rawValues.map((v: any) => {
+                          if (typeof v === "number") return v;
+                          const n = parseFloat(String(v));
+                          return isNaN(n) ? 0 : n;
+                        });
+                        return { name, values };
+                      })
+                      .filter((s: any) => s.values.length > 0)
+                  : [];
+                chartData = {
+                  chartType,
+                  categories,
+                  series,
+                  showLegend:
+                    typeof cfg.showLegend === "boolean"
+                      ? cfg.showLegend
+                      : undefined,
+                  showLabels:
+                    typeof cfg.showLabels === "boolean"
+                      ? cfg.showLabels
+                      : undefined,
+                  colors: Array.isArray(cfg.colors)
+                    ? cfg.colors.map((c: any) => String(c))
+                    : undefined,
+                };
+              } catch {
+                chartData = undefined;
+              }
+            }
+          }
+        }
+
+        // Fallback: if templates didn't provide `data-chart-config`,
+        // try best-effort parsing from Recharts SVG <title> nodes.
+        if (!chartData && tagName === "svg") {
+          const svgEl = el as unknown as SVGElement;
+          const hasPie = !!svgEl.querySelector('[class*="recharts-pie"]');
+          const hasBar = !!svgEl.querySelector('[class*="recharts-bar"]');
+          const hasLine = !!svgEl.querySelector('[class*="recharts-line"]');
+
+          const parsedType = hasPie
+            ? "pie"
+            : hasLine
+            ? "line"
+            : hasBar
+            ? "bar"
+            : "bar";
+
+          const titles = Array.from(svgEl.querySelectorAll("title"))
+            .map((t) => (t.textContent || "").trim())
+            .filter(Boolean);
+
+          const categories: string[] = [];
+          const valuesByCategory: Record<string, number> = {};
+
+          const pushPair = (label: string | undefined, value: number) => {
+            const cat =
+              label && label.length > 0
+                ? label
+                : `Category ${categories.length + 1}`;
+            if (!(cat in valuesByCategory)) {
+              categories.push(cat);
+            }
+            valuesByCategory[cat] = value;
+          };
+
+          for (const title of titles) {
+            const numMatch = title.match(/-?\d+(?:\.\d+)?/);
+            if (!numMatch) continue;
+            const value = parseFloat(numMatch[0]);
+            if (isNaN(value)) continue;
+
+            let label: string | undefined = undefined;
+            if (title.includes(",")) {
+              label = title.split(",")[0]?.trim();
+            } else if (title.includes(":")) {
+              label = title.split(":")[0]?.trim();
+            }
+
+            pushPair(label, value);
+          }
+
+          if (categories.length > 0) {
+            const values = categories.map((c) => valuesByCategory[c] ?? 0);
+            chartData = {
+              chartType: parsedType,
+              categories,
+              series: [{ name: "Series 1", values }],
+              showLegend: undefined,
+              showLabels: undefined,
+            };
+          }
+        }
+      }
+
       const opacity = parseFloat(computedStyles.opacity);
       const elementOpacity = isNaN(opacity) ? undefined : opacity;
 
@@ -1207,6 +1414,8 @@ async function getElementAttributes(
         textWrap: textWrap,
         should_screenshot: false,
         element: undefined,
+        tableData: tableData,
+        chartData: chartData,
         filters: filters,
       };
     }

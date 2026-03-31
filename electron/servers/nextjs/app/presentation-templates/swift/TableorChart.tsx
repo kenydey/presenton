@@ -135,6 +135,13 @@ const TableOrChart: React.FC<SlideLayoutProps> = ({ data: slideData }) => {
   const type = slideData?.chart?.type || "bar"
 
   const showLabels = slideData?.chart?.showLabels !== false
+  const exportChartConfig = {
+    chartType: type,
+    categories: cData.map((d) => d.label),
+    series: [{ name: "Series 1", values: cData.map((d) => d.value) }],
+    showLegend: true,
+    showLabels,
+  }
 
   return (
     <>
@@ -214,7 +221,10 @@ const TableOrChart: React.FC<SlideLayoutProps> = ({ data: slideData }) => {
               </div>
             </div>
           ) : (
-            <div className="w-full h-[360px] rounded-xl p-4" >
+            <div
+              className="w-full h-[360px] rounded-xl p-4"
+              data-chart-config={JSON.stringify(exportChartConfig)}
+            >
               <ResponsiveContainer width="100%" height="100%">
                 {type === 'bar' ? (
                   <BarChart data={cData} margin={{ top: 10, right: 20, bottom: 10, left: 0 }}>

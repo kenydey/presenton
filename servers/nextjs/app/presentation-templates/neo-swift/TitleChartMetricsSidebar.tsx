@@ -116,6 +116,46 @@ const dynamicSlideLayout: React.FC<{ data: Partial<z.infer<typeof Schema>> }> = 
 
     } = data;
 
+    const rows = chart?.rows ?? [];
+    const categories = rows.map((r) => String(r.label ?? ""));
+    const values1 = rows.map((r: any) =>
+        typeof r.value === "number" ? r.value : parseFloat(String(r.value ?? 0)) || 0
+    );
+    const values2 = rows.map((r: any) =>
+        r.value2 === undefined ? 0 : (typeof r.value2 === "number" ? r.value2 : parseFloat(String(r.value2)) || 0)
+    );
+
+    const hasSecondSeries = rows.some((r: any) => r.value2 !== undefined);
+    const simplifiedChartType =
+        chartType?.includes("pie") || chartType?.includes("donut")
+            ? "pie"
+            : chartType?.includes("line") || chartType?.includes("area")
+            ? "line"
+            : chartType?.includes("horizontalBar")
+            ? "horizontalBar"
+            : "bar";
+
+    const exportChartConfig = {
+        chartType: simplifiedChartType,
+        categories,
+        series: [
+            {
+                name: chart?.columns?.[0] ?? "Series 1",
+                values: values1,
+            },
+            ...(hasSecondSeries
+                ? [
+                      {
+                          name: chart?.columns?.[1] ?? "Series 2",
+                          values: values2,
+                      },
+                  ]
+                : []),
+        ],
+        showLegend: chartType !== "pie" && chartType !== "donut",
+        showLabels: undefined,
+    };
+
     const formatComma = (value: number) => {
         return value.toLocaleString('en-US');
     };
@@ -486,7 +526,10 @@ const dynamicSlideLayout: React.FC<{ data: Partial<z.infer<typeof Schema>> }> = 
                                 </div>
                             )}
 
-                            <div className="flex-1 w-full max-h-[400px]">
+                            <div
+                                className="flex-1 w-full max-h-[400px]"
+                                data-chart-config={JSON.stringify(exportChartConfig)}
+                            >
 
                                 {renderChart()}
 

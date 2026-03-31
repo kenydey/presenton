@@ -539,6 +539,26 @@ const dynamicSlideLayout: React.FC<{ data: Partial<FormData> }> = ({ data }) => 
     const chartConfig = chart;
     const colors = DEFAULT_CHART_COLORS;
 
+    const simplifiedChartType =
+        chartConfig?.type?.includes('pie') || chartConfig?.type?.includes('donut')
+            ? 'pie'
+            : chartConfig?.type?.includes('line') || chartConfig?.type?.includes('area')
+            ? 'line'
+            : chartConfig?.type?.includes('horizontal')
+            ? 'horizontalBar'
+            : 'bar';
+
+    const exportChartConfig = {
+        chartType: simplifiedChartType,
+        categories: chartConfig?.categories ?? [],
+        series: (chartConfig?.series ?? []).map((s: any) => ({
+            name: s?.name ?? 'Series 1',
+            values: Array.isArray(s?.values) ? s.values.map((v: any) => Number(v ?? 0)) : [],
+        })),
+        showLegend: true,
+        showLabels: undefined,
+    };
+
     return (
         <>
             <link
@@ -575,7 +595,11 @@ const dynamicSlideLayout: React.FC<{ data: Partial<FormData> }> = ({ data }) => 
                 </div>
 
                 <div className="mt-10 w-full">
-                    <div className="rounded-[24px] px-6 py-6 border  w-full" style={{ backgroundColor: 'var(--card-color,#F0F0F2)', borderColor: 'var(--stroke,#F0F0F2)' }}>
+                    <div
+                        className="rounded-[24px] px-6 py-6 border  w-full"
+                        style={{ backgroundColor: 'var(--card-color,#F0F0F2)', borderColor: 'var(--stroke,#F0F0F2)' }}
+                        data-chart-config={JSON.stringify(exportChartConfig)}
+                    >
                         <ChartLegend series={chartConfig?.series ?? []} colors={colors} />
                         <ChartRenderer chart={chartConfig ?? { categories: [], series: [], type: 'bar' }} />
                     </div>

@@ -4,6 +4,8 @@ import {
   PptxTextBoxModel,
   PptxAutoShapeBoxModel,
   PptxPictureBoxModel,
+  PptxTableBoxModel,
+  PptxChartBoxModel,
   PptxConnectorModel,
   PptxPositionModel,
   PptxFillModel,
@@ -61,7 +63,14 @@ export function convertElementAttributesToPptxSlides(
     }).filter(Boolean);
 
     const slide: PptxSlideModel = {
-      shapes: shapes as (PptxTextBoxModel | PptxAutoShapeBoxModel | PptxConnectorModel | PptxPictureBoxModel)[],
+      shapes: shapes as (
+        | PptxTextBoxModel
+        | PptxAutoShapeBoxModel
+        | PptxConnectorModel
+        | PptxPictureBoxModel
+        | PptxTableBoxModel
+        | PptxChartBoxModel
+      )[],
       note: slideAttributes.speakerNote
     };
 
@@ -78,10 +87,18 @@ export function convertElementAttributesToPptxSlides(
 
 function convertElementToPptxShape(
   element: ElementAttributes
-): PptxTextBoxModel | PptxAutoShapeBoxModel | PptxConnectorModel | PptxPictureBoxModel | null {
+): PptxTextBoxModel | PptxAutoShapeBoxModel | PptxConnectorModel | PptxPictureBoxModel | PptxTableBoxModel | PptxChartBoxModel | null {
 
   if (!element.position) {
     return null;
+  }
+
+  if (element.tableData) {
+    return convertToTableBox(element);
+  }
+
+  if (element.chartData) {
+    return convertToChartBox(element);
   }
 
   if (element.tagName === 'img' || (element.className && typeof element.className === 'string' && element.className.includes('image')) || element.imageSrc) {
@@ -101,6 +118,64 @@ function convertElementToPptxShape(
   }
 
   return convertToAutoShapeBox(element);
+}
+
+function convertToTableBox(element: ElementAttributes): PptxTableBoxModel {
+  const position: PptxPositionModel = {
+    left: Math.round(element.position?.left ?? 0),
+    top: Math.round(element.position?.top ?? 0),
+    width: Math.round(element.position?.width ?? 0),
+    height: Math.round(element.position?.height ?? 0)
+  };
+
+  const tableData = element.tableData!;
+
+  const fill: PptxFillModel | undefined = element.background?.color
+    ? {
+        color: element.background.color,
+        opacity: element.background.opacity ?? 1.0,
+      }
+    : undefined;
+
+  const stroke: PptxStrokeModel | undefined = element.border?.color
+    ? {
+        color: element.border.color,
+        thickness: element.border.width ?? 1,
+        opacity: element.border.opacity ?? 1.0,
+      }
+    : undefined;
+
+  return {
+    shape_type: "table",
+    position,
+    margin: undefined,
+    fill,
+    stroke,
+    columns: tableData.columns,
+    rows: tableData.rows
+  };
+}
+
+function convertToChartBox(element: ElementAttributes): PptxChartBoxModel {
+  const position: PptxPositionModel = {
+    left: Math.round(element.position?.left ?? 0),
+    top: Math.round(element.position?.top ?? 0),
+    width: Math.round(element.position?.width ?? 0),
+    height: Math.round(element.position?.height ?? 0)
+  };
+
+  const chartData = element.chartData!;
+
+  return {
+    shape_type: "chart",
+    position,
+    chart_type: chartData.chartType,
+    categories: chartData.categories,
+    series: chartData.series,
+    showLegend: chartData.showLegend,
+    showLabels: chartData.showLabels,
+    colors: chartData.colors
+  };
 }
 
 function convertToTextBox(element: ElementAttributes): PptxTextBoxModel {

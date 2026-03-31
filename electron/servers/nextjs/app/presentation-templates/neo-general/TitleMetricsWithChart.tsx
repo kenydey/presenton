@@ -520,6 +520,26 @@ const ChartRenderer: React.FC<{ chart: { categories: string[]; series: any[], ty
 const dynamicSlideLayout: React.FC<{ data: Partial<SlideData> }> = ({ data }) => {
     const { title, description, chart, metrics } = data;
 
+    const simplifiedChartType =
+        chart?.type?.includes('pie') || chart?.type?.includes('donut')
+            ? 'pie'
+            : chart?.type?.includes('line') || chart?.type?.includes('area')
+            ? 'line'
+            : chart?.type?.includes('horizontal')
+            ? 'horizontalBar'
+            : 'bar';
+
+    const exportChartConfig = {
+        chartType: simplifiedChartType,
+        categories: chart?.categories ?? [],
+        series: (chart?.series ?? []).map((s: any) => ({
+            name: s?.name ?? 'Series 1',
+            values: Array.isArray(s?.values) ? s.values.map((v: any) => Number(v ?? 0)) : [],
+        })),
+        showLegend: true,
+        showLabels: undefined,
+    };
+
 
     return (
         <>
@@ -566,7 +586,11 @@ const dynamicSlideLayout: React.FC<{ data: Partial<SlideData> }> = ({ data }) =>
 
                 {/* Graph Section */}
                 <div className=" flex justify-between items-center gap-6 w-full">
-                    <div className=" flex-1 border  rounded-xl p-4 shadow-sm" style={{ backgroundColor: 'var(--card-color,#F0F0F2)', borderColor: 'var(--stroke,#F0F0F2)' }}>
+                    <div
+                        className=" flex-1 border  rounded-xl p-4 shadow-sm"
+                        style={{ backgroundColor: 'var(--card-color,#F0F0F2)', borderColor: 'var(--stroke,#F0F0F2)' }}
+                        data-chart-config={JSON.stringify(exportChartConfig)}
+                    >
                         <ChartLegend series={chart?.series ?? []} colors={DEFAULT_CHART_COLORS} />
                         <ChartRenderer chart={chart ?? { categories: [], series: [], type: 'bar' }} />
                     </div>

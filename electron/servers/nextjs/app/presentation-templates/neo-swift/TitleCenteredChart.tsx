@@ -98,6 +98,25 @@ const graphColors = (index: number, fallbackColor?: string) => {
 const dynamicSlideLayout: React.FC<{ data: Partial<z.infer<typeof Schema>> }> = ({ data }) => {
     const { title, chartType = 'bar', graph } = data;
 
+    const rows = graph?.rows ?? [];
+    const categories = rows.map((r) => String(r.label ?? ""));
+    const values = rows.map((r) => typeof r.value === "number" ? r.value : parseFloat(String(r.value ?? 0)) || 0);
+    const simplifiedChartType = chartType?.includes("pie") || chartType?.includes("donut")
+        ? "pie"
+        : chartType?.includes("line") || chartType?.includes("area")
+        ? "line"
+        : chartType?.includes("horizontalBar")
+        ? "horizontalBar"
+        : "bar";
+
+    const exportChartConfig = {
+        chartType: simplifiedChartType,
+        categories,
+        series: [{ name: "Series 1", values }],
+        showLegend: chartType !== 'pie' && chartType !== 'donut',
+        showLabels: undefined,
+    };
+
     const renderCustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent, index, label }: any) => {
         const RADIAN = Math.PI / 180;
         const radius = outerRadius + 30;
@@ -426,7 +445,10 @@ const dynamicSlideLayout: React.FC<{ data: Partial<z.infer<typeof Schema>> }> = 
                         )}
 
                         {/* Chart Container */}
-                        <div className="max-w-[1050px] mx-auto w-full h-full ">
+                        <div
+                            className="max-w-[1050px] mx-auto w-full h-full "
+                            data-chart-config={JSON.stringify(exportChartConfig)}
+                        >
 
                             {renderChart()}
 

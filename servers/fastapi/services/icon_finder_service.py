@@ -1,12 +1,13 @@
 import asyncio
 import json
-import chromadb
-from chromadb.config import Settings
-from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
+from typing import Optional
 
 
 class IconFinderService:
     def __init__(self):
+        import chromadb
+        from chromadb.config import Settings
+
         self.collection_name = "icons"
         self.client = chromadb.PersistentClient(
             path="chroma", settings=Settings(anonymized_telemetry=False)
@@ -16,6 +17,8 @@ class IconFinderService:
         print("Icons collection initialized.")
 
     def _initialize_icons_collection(self):
+        from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
+
         self.embedding_function = ONNXMiniLM_L6_V2()
         self.embedding_function.DOWNLOAD_PATH = "chroma/models"
         self.embedding_function._download_model_if_not_exists()
@@ -53,4 +56,11 @@ class IconFinderService:
         return [f"/static/icons/bold/{each}.svg" for each in result["ids"][0]]
 
 
-ICON_FINDER_SERVICE = IconFinderService()
+_ICON_FINDER_SERVICE: Optional[IconFinderService] = None
+
+
+def get_icon_finder_service() -> IconFinderService:
+    global _ICON_FINDER_SERVICE
+    if _ICON_FINDER_SERVICE is None:
+        _ICON_FINDER_SERVICE = IconFinderService()
+    return _ICON_FINDER_SERVICE

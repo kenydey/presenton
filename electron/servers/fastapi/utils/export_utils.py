@@ -14,6 +14,13 @@ from utils.asset_directory_utils import get_exports_directory
 import uuid
 
 
+def _nextjs_internal_base_url() -> str:
+    # In Docker, nginx typically exposes the app on :80 inside the container, so `localhost` works.
+    # For local dev (`start.js`), Next.js listens on 127.0.0.1:3000 — set:
+    # `PRESENTON_NEXTJS_INTERNAL_URL=http://127.0.0.1:3000`
+    return os.getenv("PRESENTON_NEXTJS_INTERNAL_URL", "http://localhost").rstrip("/")
+
+
 async def export_presentation(
     presentation_id: uuid.UUID, title: str, export_as: Literal["pptx", "pdf"]
 ) -> PresentationAndPath:
@@ -22,7 +29,7 @@ async def export_presentation(
         # Get the converted PPTX model from the Next.js service
         async with aiohttp.ClientSession() as session:
             async with session.get(
-                f"http://localhost/api/presentation_to_pptx_model?id={presentation_id}"
+                f"{_nextjs_internal_base_url()}/api/presentation_to_pptx_model?id={presentation_id}"
             ) as response:
                 if response.status != 200:
                     error_text = await response.text()
@@ -53,7 +60,7 @@ async def export_presentation(
     else:
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                "http://localhost/api/export-as-pdf",
+                f"{_nextjs_internal_base_url()}/api/export-as-pdf",
                 json={
                     "id": str(presentation_id),
                     "title": sanitize_filename(title or str(uuid.uuid4())),

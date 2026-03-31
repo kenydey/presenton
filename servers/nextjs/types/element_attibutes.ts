@@ -5,6 +5,29 @@ export interface ElementAttributes {
   id?: string;
   className?: string;
   innerText?: string;
+  /**
+   * Parsed HTML table data (thead/tbody) when exporting native PPTX table.
+   * When present, the exporter should not screenshot the <table>.
+   */
+  tableData?: {
+    columns: string[];
+    rows: string[][];
+  };
+  /**
+   * Parsed chart config/data when exporting native PPTX chart.
+   * When present, the exporter should not screenshot the internal <svg>/<canvas>.
+   */
+  chartData?: {
+    chartType: string;
+    categories: string[];
+    series: Array<{
+      name: string;
+      values: number[];
+    }>;
+    showLegend?: boolean;
+    showLabels?: boolean;
+    colors?: string[];
+  };
   opacity?: number;
   background?: {
     color?: string;

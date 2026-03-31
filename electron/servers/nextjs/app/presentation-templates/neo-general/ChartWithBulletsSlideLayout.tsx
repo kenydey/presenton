@@ -203,6 +203,97 @@ const ChartWithBulletsSlideLayout: React.FC<ChartWithBulletsSlideLayoutProps> = 
     const bulletPoints = slideData?.bulletPoints || [];
     const divergingLabels = slideData?.chartData?.divergingLabels || ['Positive', 'Negative'];
 
+    // Convert recharts-friendly data into a normalized config for native PPTX chart export.
+    const exportChartConfig = (() => {
+        const points: any[] = chartData as any[];
+        const simplifiedChartType =
+            chartType?.includes('pie') || chartType?.includes('donut')
+                ? 'pie'
+                : chartType?.includes('line') || chartType?.includes('area')
+                ? 'line'
+                : chartType?.includes('horizontal')
+                ? 'horizontalBar'
+                : 'bar';
+
+        // data normalization
+        if (!points.length) {
+            return {
+                chartType: simplifiedChartType,
+                categories: [],
+                series: [{ name: 'Series 1', values: [] }],
+                showLegend,
+                showLabels: undefined,
+            };
+        }
+
+        // multi-series: { name, values: { [seriesName]: number } }
+        if (typeof points[0]?.values === 'object' && points[0]?.values !== null) {
+            const categories = points.map((p) => String(p.name ?? ''));
+            const seriesNames: string[] =
+                series && series.length > 0
+                    ? series
+                    : Object.keys(points[0]?.values ?? {});
+            const seriesModels = seriesNames.map((s) => ({
+                name: s,
+                values: points.map((p) => Number(p.values?.[s] ?? 0)),
+            }));
+            return {
+                chartType: simplifiedChartType,
+                categories,
+                series: seriesModels,
+                showLegend,
+                showLabels: undefined,
+            };
+        }
+
+        // diverging: { name, positive, negative }
+        if (points[0]?.positive !== undefined && points[0]?.negative !== undefined) {
+            const categories = points.map((p) => String(p.name ?? ''));
+            return {
+                chartType: 'bar',
+                categories,
+                series: [
+                    {
+                        name: divergingLabels?.[0] || 'Positive',
+                        values: points.map((p) => Number(p.positive ?? 0)),
+                    },
+                ],
+                showLegend,
+                showLabels: undefined,
+            };
+        }
+
+        // scatter: { x, y, name? }
+        if (points[0]?.x !== undefined && points[0]?.y !== undefined) {
+            const categories = points.map((p, idx) =>
+                p.name ? String(p.name) : `Point ${idx + 1}`
+            );
+            return {
+                chartType: 'line',
+                categories,
+                series: [
+                    {
+                        name: 'Series 1',
+                        values: points.map((p) => Number(p.y ?? 0)),
+                    },
+                ],
+                showLegend,
+                showLabels: undefined,
+            };
+        }
+
+        // simple: { name, value }
+        const categories = points.map((p) => String(p.name ?? ''));
+        const values = points.map((p) => Number(p.value ?? 0));
+        return {
+            chartType: simplifiedChartType,
+            categories,
+            series: [{ name: 'Series 1', values }],
+            showLegend,
+            showLabels: undefined,
+        };
+    })();
+
     const axisProps = {
         tick: { fill: 'var(--background-text, #7f8491)', fontSize: 10, fontWeight: 500 },
         axisLine: { stroke: 'var(--background-text, #7f8491)' },
@@ -527,12 +618,14 @@ const ChartWithBulletsSlideLayout: React.FC<ChartWithBulletsSlideLayoutProps> = 
                         </p>
 
                         {/* Chart Container */}
-                        <div className="flex-1 rounded-lg shadow-sm border  p-2 max-h-[460px]"
+                        <div
+                            className="flex-1 rounded-lg shadow-sm border  p-2 max-h-[460px]"
 
                             style={{
                                 borderColor: 'var(--stroke,#F8F9FA)',
                                 backgroundColor: 'var(--card-color,#FFFFFF)'
                             }}
+                            data-chart-config={JSON.stringify(exportChartConfig)}
                         >
                             <ResponsiveContainer maxHeight={460} height='100%' className="">
                                 {renderChart()}

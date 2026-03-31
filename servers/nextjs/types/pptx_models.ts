@@ -315,6 +315,32 @@ export interface PptxPictureBoxModel extends PptxShapeModel {
   picture: PptxPictureModel;
 }
 
+export interface PptxTableBoxModel extends PptxShapeModel {
+  shape_type: "table";
+  position: PptxPositionModel;
+  margin?: PptxSpacingModel;
+  fill?: PptxFillModel;
+  stroke?: PptxStrokeModel;
+  columns: string[];
+  rows: string[][];
+}
+
+export interface PptxChartSeriesModel {
+  name: string;
+  values: number[];
+}
+
+export interface PptxChartBoxModel extends PptxShapeModel {
+  shape_type: "chart";
+  position: PptxPositionModel;
+  chart_type: string;
+  categories: string[];
+  series: PptxChartSeriesModel[];
+  showLegend?: boolean;
+  showLabels?: boolean;
+  colors?: string[];
+}
+
 export interface PptxConnectorModel extends PptxShapeModel {
   shape_type: string;
   type?: PptxConnectorType;
@@ -326,7 +352,14 @@ export interface PptxConnectorModel extends PptxShapeModel {
 
 export interface PptxSlideModel {
   background?: PptxFillModel;
-  shapes: (PptxTextBoxModel | PptxAutoShapeBoxModel | PptxConnectorModel | PptxPictureBoxModel)[];
+  shapes: (
+    | PptxTextBoxModel
+    | PptxAutoShapeBoxModel
+    | PptxConnectorModel
+    | PptxPictureBoxModel
+    | PptxTableBoxModel
+    | PptxChartBoxModel
+  )[];
   note?: string;
 }
 
