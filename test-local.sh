@@ -125,7 +125,7 @@ if [ -d "servers/nextjs" ]; then
         npm ci 2>&1 | tail -10 || npm install 2>&1 | tail -10
     fi && \
     export NEXT_PUBLIC_FAST_API=http://localhost:8000 && \
-    export NEXT_PUBLIC_URL=http://localhost:3000 && \
+    export NEXT_PUBLIC_URL=http://localhost:5000 && \
     npm run lint && \
     npm run build
     "
@@ -143,7 +143,7 @@ if [ -d "electron/servers/nextjs" ]; then
         npm ci --legacy-peer-deps 2>&1 | tail -10 || npm install --legacy-peer-deps 2>&1 | tail -10
     fi && \
     export NEXT_PUBLIC_FAST_API=http://localhost:8000 && \
-    export NEXT_PUBLIC_URL=http://localhost:3000 && \
+    export NEXT_PUBLIC_URL=http://localhost:5000 && \
     npm run lint -- --legacy-peer-deps 2>&1 || npm run lint 2>&1 && \
     npm run build
     "
