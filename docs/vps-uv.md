@@ -22,7 +22,7 @@ sudo apt-get install -y chromium-browser libreoffice fontconfig curl
 
 ## 一键安装脚本（Ubuntu/Debian）
 
-若希望开箱即用（自动安装依赖、`uv sync`、构建 Next.js、写入 systemd 服务并直接启动），可以直接运行：
+若希望开箱即用（自动安装依赖、`uv sync`、构建 Next.js、写入 systemd 服务并直接启动），可以直接运行（脚本固定从 `https://github.com/kenydey/presenton.git` 部署）：
 
 ```bash
 sudo bash scripts/install-presenton-vps.sh
