@@ -11,6 +11,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { notify } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 
+const normalizeOpenAICompatibleUrl = (url: string) => url.trim().replace(/\/+$/, '');
+
 
 interface OpenAIConfigProps {
 
@@ -72,6 +74,25 @@ const TextProvider = ({
     const currentOllamaUrl = llmConfig.OLLAMA_URL || '';
     const useCustomOllamaUrl = !!llmConfig.USE_CUSTOM_URL;
     const modelLabel = selectedProviderMeta?.label || selectedProvider;
+    const resolveProviderValue = (providerValue: string) => {
+        const providerMeta = LLM_PROVIDERS[providerValue];
+        return providerMeta?.llmValue || providerValue;
+    };
+    const selectedProviderUiKey = useMemo(() => {
+        if (selectedProvider === 'custom') {
+            const url = normalizeOpenAICompatibleUrl(currentCustomUrl);
+            if (url === normalizeOpenAICompatibleUrl(LLM_PROVIDERS.deepseek.customPreset?.url || '')) {
+                return 'deepseek';
+            }
+            if (url === normalizeOpenAICompatibleUrl(LLM_PROVIDERS.qwen.customPreset?.url || '')) {
+                return 'qwen';
+            }
+            if (url === normalizeOpenAICompatibleUrl(LLM_PROVIDERS.moonshot.customPreset?.url || '')) {
+                return 'moonshot';
+            }
+        }
+        return selectedProvider;
+    }, [selectedProvider, currentCustomUrl]);
 
     useEffect(() => {
         if (isFirstRender.current) {
@@ -141,14 +162,15 @@ const TextProvider = ({
             } else if (selectedProvider === 'ollama') {
                 response = await fetch('/api/v1/ppt/ollama/models/supported');
             } else {
+                const normalizedCustomUrl = normalizeOpenAICompatibleUrl(currentCustomUrl);
                 response = await fetch('/api/v1/ppt/openai/models/available', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        url: selectedProvider === 'custom' ? currentCustomUrl : selectedProviderMeta?.url || '',
-                        api_key: currentApiKey
+                        url: selectedProvider === 'custom' ? normalizedCustomUrl : selectedProviderMeta?.url || '',
+                        api_key: currentApiKey.trim()
                     }),
                 });
             }
@@ -200,6 +222,29 @@ const TextProvider = ({
             setModelsChecked(true);
         } finally {
             setModelsLoading(false);
+        }
+    };
+
+    const handleProviderSelect = (providerValue: string) => {
+        const providerMeta = LLM_PROVIDERS[providerValue];
+        const resolvedLlmValue = resolveProviderValue(providerValue);
+
+        onInputChange(resolvedLlmValue, "LLM");
+
+        if (providerMeta?.customPreset) {
+            const normalizedPresetUrl = normalizeOpenAICompatibleUrl(
+                providerMeta.customPreset.url
+            );
+            onInputChange(normalizedPresetUrl, "CUSTOM_LLM_URL");
+            if (providerMeta.customPreset.model) {
+                onInputChange(providerMeta.customPreset.model, "CUSTOM_MODEL");
+            }
+            if (providerMeta.customPreset.toolCalls !== undefined) {
+                onInputChange(providerMeta.customPreset.toolCalls, "tool_calls");
+            }
+            if (providerMeta.customPreset.disableThinking !== undefined) {
+                onInputChange(providerMeta.customPreset.disableThinking, "disable_thinking");
+            }
         }
     };
 
@@ -275,9 +320,9 @@ const TextProvider = ({
                                         >
                                             <div className="flex gap-3 items-center">
                                                 <span className="text-sm font-medium text-gray-900">
-                                                    {llmConfig.LLM
-                                                        ? LLM_PROVIDERS[llmConfig.LLM]
-                                                            ?.label || llmConfig.LLM
+                                                    {selectedProviderUiKey
+                                                        ? LLM_PROVIDERS[selectedProviderUiKey]
+                                                            ?.label || selectedProviderUiKey
                                                         : "Select text provider"}
                                                 </span>
                                             </div>
@@ -300,14 +345,14 @@ const TextProvider = ({
                                                                 key={index}
                                                                 value={provider.value}
                                                                 onSelect={(value) => {
-                                                                    onInputChange(value, "LLM");
+                                                                    handleProviderSelect(value);
                                                                     setOpenProviderSelect(false);
                                                                 }}
                                                             >
                                                                 <Check
                                                                     className={cn(
                                                                         "mr-2 h-4 w-4",
-                                                                        llmConfig.LLM === provider.value
+                                                                        selectedProviderUiKey === provider.value
                                                                             ? "opacity-100"
                                                                             : "opacity-0"
                                                                     )}
@@ -411,7 +456,12 @@ const TextProvider = ({
                                     <input
                                         type="text"
                                         value={currentCustomUrl}
-                                        onChange={(e) => onInputChange(e.target.value, 'CUSTOM_LLM_URL')}
+                                        onChange={(e) =>
+                                            onInputChange(
+                                                normalizeOpenAICompatibleUrl(e.target.value),
+                                                'CUSTOM_LLM_URL'
+                                            )
+                                        }
                                         className="w-full mt-2 px-2 py-3 outline-none border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
                                         placeholder="OpenAI-compatible URL"
                                     />
