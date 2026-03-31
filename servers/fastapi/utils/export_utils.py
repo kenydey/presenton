@@ -16,7 +16,7 @@ import uuid
 
 def _nextjs_internal_base_url() -> str:
     # Prefer explicit internal URL; default to direct Next.js dev server in local runs.
-    return os.getenv("PRESENTON_NEXTJS_INTERNAL_URL", "http://127.0.0.1:3000").rstrip("/")
+    return os.getenv("PRESENTON_NEXTJS_INTERNAL_URL", "http://127.0.0.1:5000").rstrip("/")
 
 
 async def export_presentation(

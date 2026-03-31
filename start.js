@@ -54,7 +54,7 @@ const isDev = hasDevArg;
 const canChangeKeys = process.env.CAN_CHANGE_KEYS !== "false";
 
 const fastapiPort = 8000;
-const nextjsPort = 3000;
+const nextjsPort = 5000;
 const appmcpPort = 8001;
 
 const appDataDirectory = resolveAppDataDirectory();

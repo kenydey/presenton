@@ -179,7 +179,7 @@ async function createBrowserWindow(
   console.log('[PPTX Export] Creating browser window for presentation:', presentationId);
   
   // Use the Next.js URL from environment variable
-  const nextjsUrl = process.env.NEXT_PUBLIC_URL || 'http://localhost:3000';
+  const nextjsUrl = process.env.NEXT_PUBLIC_URL || 'http://localhost:5000';
   const fastApiUrl = process.env.NEXT_PUBLIC_FAST_API || 'http://127.0.0.1:8000';
   
   console.log('[PPTX Export] Next.js URL:', nextjsUrl);

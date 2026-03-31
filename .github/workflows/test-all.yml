@@ -132,7 +132,7 @@ jobs:
     - name: Build application
       env:
         NEXT_PUBLIC_FAST_API: http://localhost:8000
-        NEXT_PUBLIC_URL: http://localhost:3000
+        NEXT_PUBLIC_URL: http://localhost:5000
       run: npm run build
     
     - name: Run Cypress component tests
@@ -172,7 +172,7 @@ jobs:
       env:
         BUILD_TARGET: electron
         NEXT_PUBLIC_FAST_API: http://localhost:8000
-        NEXT_PUBLIC_URL: http://localhost:3000
+        NEXT_PUBLIC_URL: http://localhost:5000
       run: npm run build
     
     - name: Run Cypress component tests
