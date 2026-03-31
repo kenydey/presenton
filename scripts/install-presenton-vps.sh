@@ -49,7 +49,6 @@ SERVICE_USER="presenton"
 TEMP_DIR="/tmp/presenton"
 UV_BIN="/usr/local/bin/uv"
 UV_PYTHON_INSTALL_DIR=""
-DEBUG_LOG_PATH="/opt/cursor/logs/debug.log"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -186,15 +185,6 @@ run_as_service_user() {
   fi
 }
 
-debug_log() {
-  local hypothesis_id="$1"
-  local location="$2"
-  local message="$3"
-  local data_json="${4:-{}}"
-  printf '{"hypothesisId":"%s","location":"%s","message":"%s","data":%s,"timestamp":%s}\n' \
-    "$hypothesis_id" "$location" "$message" "$data_json" "$(date +%s%3N)" >> "$DEBUG_LOG_PATH" 2>/dev/null || true
-}
-
 echo "[1/10] Installing base packages..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
@@ -269,11 +259,6 @@ if [[ "$SERVICE_USER" != "root" ]]; then
 fi
 SERVICE_GROUP="$(id -gn "$SERVICE_USER")"
 chown -R "$SERVICE_USER:$SERVICE_GROUP" "$APP_DATA_DIRECTORY" "$TEMP_DIR" "$UV_PYTHON_INSTALL_DIR"
-#region agent log
-uv_python_dir_owner="$(stat -c '%U:%G' "$UV_PYTHON_INSTALL_DIR" 2>/dev/null || echo unknown)"
-uv_python_dir_mode="$(stat -c '%a' "$UV_PYTHON_INSTALL_DIR" 2>/dev/null || echo unknown)"
-debug_log "A" "scripts/install-presenton-vps.sh:268" "uv_python_dir_after_chown" "{\"serviceUser\":\"$SERVICE_USER\",\"serviceGroup\":\"$SERVICE_GROUP\",\"owner\":\"$uv_python_dir_owner\",\"mode\":\"$uv_python_dir_mode\"}"
-#endregion
 
 echo "[6/10] Fetching repository..."
 if [[ -d "$INSTALL_DIR/.git" ]]; then
@@ -295,19 +280,7 @@ fi
 chown -R "$SERVICE_USER:$SERVICE_GROUP" "$INSTALL_DIR"
 
 echo "[7/10] Building FastAPI + Next.js..."
-#region agent log
-fastapi_sync_runner="$(run_as_service_user "id -un" 2>/dev/null || echo unknown)"
-debug_log "B" "scripts/install-presenton-vps.sh:291" "before_fastapi_uv_sync" "{\"serviceUser\":\"$SERVICE_USER\",\"syncRunner\":\"$fastapi_sync_runner\"}"
-#endregion
 run_as_service_user "cd '$INSTALL_DIR/servers/fastapi' && UV_PYTHON_INSTALL_DIR='$UV_PYTHON_INSTALL_DIR' '$UV_BIN' sync --frozen"
-#region agent log
-fastapi_venv_python="$INSTALL_DIR/servers/fastapi/.venv/bin/python"
-fastapi_venv_owner="$(stat -c '%U:%G' "$fastapi_venv_python" 2>/dev/null || echo missing)"
-fastapi_venv_mode="$(stat -c '%a' "$fastapi_venv_python" 2>/dev/null || echo missing)"
-fastapi_venv_target="$(readlink -f "$fastapi_venv_python" 2>/dev/null || echo missing)"
-fastapi_venv_exec_as_user="$(run_as_service_user "test -x '$fastapi_venv_python' && echo yes || echo no" 2>/dev/null || echo unknown)"
-debug_log "C" "scripts/install-presenton-vps.sh:299" "after_fastapi_uv_sync" "{\"venvPython\":\"$fastapi_venv_python\",\"owner\":\"$fastapi_venv_owner\",\"mode\":\"$fastapi_venv_mode\",\"target\":\"$fastapi_venv_target\",\"execAsServiceUser\":\"$fastapi_venv_exec_as_user\"}"
-#endregion
 run_as_service_user "cd '$INSTALL_DIR/servers/nextjs' && npm ci && npm run build"
 
 echo "[8/10] Writing environment and systemd units..."
@@ -322,11 +295,6 @@ if [[ ! -x "$PYTHON_BIN" ]]; then
   echo "FastAPI venv Python not found: $PYTHON_BIN"
   exit 1
 fi
-#region agent log
-python_bin_exec_as_user="$(run_as_service_user "test -x '$PYTHON_BIN' && echo yes || echo no" 2>/dev/null || echo unknown)"
-python_bin_target="$(readlink -f "$PYTHON_BIN" 2>/dev/null || echo missing)"
-debug_log "D" "scripts/install-presenton-vps.sh:314" "systemd_python_bin_check" "{\"pythonBin\":\"$PYTHON_BIN\",\"target\":\"$python_bin_target\",\"execAsServiceUser\":\"$python_bin_exec_as_user\"}"
-#endregion
 
 cat >"$ENV_FILE" <<EOF_ENV
 APP_DATA_DIRECTORY=$APP_DATA_DIRECTORY
@@ -446,12 +414,6 @@ fi
 echo "[10/10] Enabling and starting services..."
 systemctl daemon-reload
 systemctl enable --now presenton-fastapi presenton-mcp presenton-nextjs
-#region agent log
-fastapi_state="$(systemctl is-active presenton-fastapi 2>/dev/null || echo unknown)"
-mcp_state="$(systemctl is-active presenton-mcp 2>/dev/null || echo unknown)"
-nextjs_state="$(systemctl is-active presenton-nextjs 2>/dev/null || echo unknown)"
-debug_log "E" "scripts/install-presenton-vps.sh:441" "post_systemctl_start_states" "{\"fastapi\":\"$fastapi_state\",\"mcp\":\"$mcp_state\",\"nextjs\":\"$nextjs_state\"}"
-#endregion
 
 NEXT_HEALTH_URL="http://127.0.0.1:$NEXTJS_PORT/"
 FASTAPI_HEALTH_URL="http://127.0.0.1:$FASTAPI_PORT/docs"
@@ -493,14 +455,6 @@ echo "  journalctl -u presenton-nextjs -f"
 echo "  journalctl -u presenton-mcp -f"
 
 if [[ "$HEALTH_FAILED" -ne 0 ]]; then
-#region agent log
-fastapi_exec_main_status="$(systemctl show presenton-fastapi -p ExecMainStatus --value 2>/dev/null || echo unknown)"
-fastapi_exec_main_code="$(systemctl show presenton-fastapi -p ExecMainCode --value 2>/dev/null || echo unknown)"
-fastapi_sub_state="$(systemctl show presenton-fastapi -p SubState --value 2>/dev/null || echo unknown)"
-fastapi_restart_count="$(systemctl show presenton-fastapi -p NRestarts --value 2>/dev/null || echo unknown)"
-fastapi_recent_journal_b64="$(journalctl -u presenton-fastapi -n 20 --no-pager 2>/dev/null | base64 -w0 2>/dev/null || echo none)"
-debug_log "F" "scripts/install-presenton-vps.sh:488" "health_check_failed_fastapi_state" "{\"execMainStatus\":\"$fastapi_exec_main_status\",\"execMainCode\":\"$fastapi_exec_main_code\",\"subState\":\"$fastapi_sub_state\",\"restartCount\":\"$fastapi_restart_count\",\"journalB64\":\"$fastapi_recent_journal_b64\"}"
-#endregion
   echo
   echo "One or more health checks failed. Please review service logs above."
   exit 1
