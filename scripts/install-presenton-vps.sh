@@ -1,43 +1,23 @@
 #!/usr/bin/env bash
-# Ubuntu/Debian one-click installer for Presenton (kenydey/presenton).
-# Default mode is direct deployment (no nginx):
+# Presenton one-click installer for Ubuntu/Debian.
+# Default direct mode ports:
 #   - Next.js: 5000
 #   - FastAPI: 8000
 #   - MCP: 8001
-#
-# Optional: --with-nginx to configure reverse proxy + certbot HTTPS.
 
 set -euo pipefail
 
-usage() {
-  cat <<'EOF'
-Usage: install-presenton-vps.sh [options]
-
-Options:
-  --ref <ref>             Git ref/branch/tag to checkout (default: main)
-  --install-dir <dir>     Install directory (default: /opt/presenton)
-  --app-data <dir>        Persistent data directory (default: /var/lib/presenton)
-  --next-port <port>      Next.js port (default: 5000)
-  --fastapi-port <port>   FastAPI port (default: 8000)
-  --mcp-port <port>       MCP port (default: 8001)
-  --service-user <user>   System user to run services (default: presenton)
-  --upgrade               Upgrade existing install in-place (default: false)
-  --enable-ollama         Enable local ollama serve (default: disabled)
-  --with-nginx            Configure nginx reverse proxy (optional)
-  --domain <domain>       Required only when --with-nginx is used
-  --email <email>         Required only when --with-nginx is used
-  --force                 Overwrite existing install directory
-  -h, --help              Show this help
-EOF
-}
-
 readonly REPO_URL="https://github.com/kenydey/presenton.git"
+
 REF="main"
 INSTALL_DIR="/opt/presenton"
 APP_DATA_DIRECTORY="/var/lib/presenton"
 NEXTJS_PORT="5000"
 FASTAPI_PORT="8000"
 MCP_PORT="8001"
+SERVICE_USER="presenton"
+SERVICE_GROUP=""
+SERVICE_HOME=""
 ENABLE_OLLAMA="false"
 WITH_NGINX="false"
 FORCE="false"
@@ -45,117 +25,62 @@ UPGRADE="false"
 DOMAIN=""
 EMAIL=""
 NEXTJS_BIND_HOST="0.0.0.0"
-SERVICE_USER="presenton"
+
 TEMP_DIR="/tmp/presenton"
 UV_BIN="/usr/local/bin/uv"
 UV_PYTHON_INSTALL_DIR=""
+CHROMIUM_BIN=""
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --ref)
-      REF="${2:-}"
-      shift 2
-      ;;
-    --install-dir)
-      INSTALL_DIR="${2:-}"
-      shift 2
-      ;;
-    --app-data)
-      APP_DATA_DIRECTORY="${2:-}"
-      shift 2
-      ;;
-    --next-port)
-      NEXTJS_PORT="${2:-}"
-      shift 2
-      ;;
-    --fastapi-port)
-      FASTAPI_PORT="${2:-}"
-      shift 2
-      ;;
-    --mcp-port)
-      MCP_PORT="${2:-}"
-      shift 2
-      ;;
-    --enable-ollama)
-      ENABLE_OLLAMA="true"
-      shift 1
-      ;;
-    --service-user)
-      SERVICE_USER="${2:-}"
-      shift 2
-      ;;
-    --upgrade)
-      UPGRADE="true"
-      shift 1
-      ;;
-    --with-nginx)
-      WITH_NGINX="true"
-      shift 1
-      ;;
-    --domain)
-      DOMAIN="${2:-}"
-      shift 2
-      ;;
-    --email)
-      EMAIL="${2:-}"
-      shift 2
-      ;;
-    --force)
-      FORCE="true"
-      shift 1
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    *)
-      echo "Unknown argument: $1"
-      usage
-      exit 1
-      ;;
-  esac
-done
+ENV_FILE="/etc/presenton.env"
+FASTAPI_SERVICE="/etc/systemd/system/presenton-fastapi.service"
+MCP_SERVICE="/etc/systemd/system/presenton-mcp.service"
+NEXTJS_SERVICE="/etc/systemd/system/presenton-nextjs.service"
+PYTHON_BIN=""
 
-if [[ "$(id -u)" -ne 0 ]]; then
-  echo "Please run as root (use sudo)."
+usage() {
+  cat <<'EOF'
+Usage: install-presenton-vps.sh [options]
+
+Options:
+  --ref <ref>             Git ref/branch/tag/commit to deploy (default: main)
+  --install-dir <dir>     Install directory (default: /opt/presenton)
+  --app-data <dir>        Persistent app data directory (default: /var/lib/presenton)
+  --next-port <port>      Next.js port (default: 5000)
+  --fastapi-port <port>   FastAPI port (default: 8000)
+  --mcp-port <port>       MCP port (default: 8001)
+  --service-user <user>   System user for services (default: presenton)
+  --upgrade               Upgrade existing install in-place
+  --force                 Delete install dir then reinstall
+  --enable-ollama         Set ENABLE_OLLAMA=true in runtime env
+  --with-nginx            Configure nginx + optional certbot
+  --domain <domain>       Required with --with-nginx
+  --email <email>         Required with --with-nginx
+  -h, --help              Show help
+EOF
+}
+
+info() {
+  echo "[install] $*"
+}
+
+die() {
+  echo "[install][error] $*" >&2
   exit 1
-fi
+}
 
-. /etc/os-release
-if [[ "${ID:-}" != "ubuntu" && "${ID:-}" != "debian" ]]; then
-  echo "Unsupported OS: ${ID:-unknown}. Only Ubuntu/Debian are supported."
-  exit 1
-fi
-
-if [[ "$WITH_NGINX" == "true" && ( -z "$DOMAIN" || -z "$EMAIL" ) ]]; then
-  echo "--with-nginx requires both --domain and --email."
-  usage
-  exit 1
-fi
-
-if [[ "$WITH_NGINX" == "true" ]]; then
-  NEXTJS_BIND_HOST="127.0.0.1"
-fi
-
-if [[ -z "$SERVICE_USER" ]]; then
-  echo "--service-user cannot be empty."
-  exit 1
-fi
-
-if [[ "$FORCE" == "true" && "$UPGRADE" == "true" ]]; then
-  echo "--force and --upgrade cannot be used together."
-  exit 1
-fi
-
-UV_PYTHON_INSTALL_DIR="$INSTALL_DIR/.uv-python"
-
-for port_var in NEXTJS_PORT FASTAPI_PORT MCP_PORT; do
-  port_val="${!port_var}"
-  if ! [[ "$port_val" =~ ^[0-9]+$ ]] || (( port_val < 1 || port_val > 65535 )); then
-    echo "Invalid ${port_var}: ${port_val}"
-    exit 1
+require_root() {
+  if [[ "$(id -u)" -ne 0 ]]; then
+    die "Please run as root (use sudo)."
   fi
-done
+}
+
+validate_port() {
+  local value="$1"
+  local name="$2"
+  if ! [[ "$value" =~ ^[0-9]+$ ]] || (( value < 1 || value > 65535 )); then
+    die "Invalid ${name}: ${value}"
+  fi
+}
 
 wait_for_http() {
   local url="$1"
@@ -180,123 +105,189 @@ run_as_service_user() {
   local cmd="$1"
   if [[ "$SERVICE_USER" == "root" ]]; then
     bash -lc "$cmd"
-  else
-    runuser -u "$SERVICE_USER" -- bash -lc "$cmd"
+    return
   fi
+  runuser -u "$SERVICE_USER" -- env HOME="$SERVICE_HOME" XDG_CACHE_HOME="$SERVICE_HOME/.cache" bash -lc "$cmd"
 }
 
-echo "[1/10] Installing base packages..."
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -y
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --ref) REF="${2:-}"; shift 2 ;;
+      --install-dir) INSTALL_DIR="${2:-}"; shift 2 ;;
+      --app-data) APP_DATA_DIRECTORY="${2:-}"; shift 2 ;;
+      --next-port) NEXTJS_PORT="${2:-}"; shift 2 ;;
+      --fastapi-port) FASTAPI_PORT="${2:-}"; shift 2 ;;
+      --mcp-port) MCP_PORT="${2:-}"; shift 2 ;;
+      --service-user) SERVICE_USER="${2:-}"; shift 2 ;;
+      --upgrade) UPGRADE="true"; shift 1 ;;
+      --force) FORCE="true"; shift 1 ;;
+      --enable-ollama) ENABLE_OLLAMA="true"; shift 1 ;;
+      --with-nginx) WITH_NGINX="true"; shift 1 ;;
+      --domain) DOMAIN="${2:-}"; shift 2 ;;
+      --email) EMAIL="${2:-}"; shift 2 ;;
+      -h|--help) usage; exit 0 ;;
+      *) die "Unknown argument: $1" ;;
+    esac
+  done
+}
 
-# Chromium package name differs between Ubuntu/Debian flavors.
-CHROMIUM_BIN=""
-if apt-cache show chromium-browser >/dev/null 2>&1; then
-  apt-get install -y chromium-browser
-  CHROMIUM_BIN="$(command -v chromium-browser || true)"
-elif apt-cache show chromium >/dev/null 2>&1; then
-  apt-get install -y chromium
-  CHROMIUM_BIN="$(command -v chromium || true)"
-else
-  echo "Chromium package not found in apt sources."
-  exit 1
-fi
+validate_args() {
+  require_root
 
-apt-get install -y curl ca-certificates git libreoffice fontconfig build-essential
+  . /etc/os-release
+  if [[ "${ID:-}" != "ubuntu" && "${ID:-}" != "debian" ]]; then
+    die "Unsupported OS: ${ID:-unknown}. Only Ubuntu/Debian are supported."
+  fi
 
-if [[ "$WITH_NGINX" == "true" ]]; then
-  apt-get install -y nginx certbot python3-certbot-nginx
-fi
+  [[ -n "$SERVICE_USER" ]] || die "--service-user cannot be empty."
+  [[ "$FORCE" != "true" || "$UPGRADE" != "true" ]] || die "--force and --upgrade cannot be used together."
 
-if [[ -z "$CHROMIUM_BIN" ]]; then
-  echo "Chromium binary not found after installation."
-  exit 1
-fi
+  if [[ "$WITH_NGINX" == "true" && ( -z "$DOMAIN" || -z "$EMAIL" ) ]]; then
+    die "--with-nginx requires both --domain and --email."
+  fi
+  if [[ "$WITH_NGINX" == "true" ]]; then
+    NEXTJS_BIND_HOST="127.0.0.1"
+  fi
 
-echo "[2/10] Installing Node.js 20..."
-curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-apt-get install -y nodejs
+  validate_port "$NEXTJS_PORT" "NEXTJS_PORT"
+  validate_port "$FASTAPI_PORT" "FASTAPI_PORT"
+  validate_port "$MCP_PORT" "MCP_PORT"
 
-echo "[3/10] Installing uv..."
-export UV_INSTALL_DIR="/usr/local/bin"
-curl -LsSf https://astral.sh/uv/install.sh | sh
-if [[ ! -x "$UV_BIN" ]]; then
-  echo "uv not found after install."
-  exit 1
-fi
+  UV_PYTHON_INSTALL_DIR="$INSTALL_DIR/.uv-python"
+}
 
-echo "[4/10] Installing Python 3.11 via uv..."
-mkdir -p "$UV_PYTHON_INSTALL_DIR"
-UV_PYTHON_INSTALL_DIR="$UV_PYTHON_INSTALL_DIR" "$UV_BIN" python install 3.11
+install_chromium() {
+  if apt-cache show chromium-browser >/dev/null 2>&1; then
+    apt-get install -y chromium-browser
+    CHROMIUM_BIN="$(command -v chromium-browser || true)"
+    return
+  fi
+  if apt-cache show chromium >/dev/null 2>&1; then
+    apt-get install -y chromium
+    CHROMIUM_BIN="$(command -v chromium || true)"
+    return
+  fi
+  die "Chromium package not found in apt sources."
+}
 
-echo "[5/10] Preparing directories and service user..."
-mkdir -p "$(dirname "$INSTALL_DIR")"
+install_nodejs_20() {
+  if command -v node >/dev/null 2>&1; then
+    local major
+    major="$(node -v | sed -E 's/^v([0-9]+).*/\1/' || true)"
+    if [[ "$major" == "20" ]]; then
+      info "Node.js 20 already installed: $(node -v)"
+      return
+    fi
+  fi
+  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  apt-get install -y nodejs
+}
 
-if [[ -d "$INSTALL_DIR" && ! -d "$INSTALL_DIR/.git" && "$FORCE" != "true" ]]; then
-  echo "Install dir exists but is not a git repo: $INSTALL_DIR"
-  echo "Use --force to replace it."
-  exit 1
-fi
+install_uv() {
+  if [[ -x "$UV_BIN" ]]; then
+    info "uv already installed: $UV_BIN"
+    return
+  fi
+  export UV_INSTALL_DIR="/usr/local/bin"
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  [[ -x "$UV_BIN" ]] || die "uv not found after install at $UV_BIN"
+}
 
-if [[ "$FORCE" == "true" && -d "$INSTALL_DIR" ]]; then
-  rm -rf "$INSTALL_DIR"
-fi
+install_base_packages() {
+  info "[1/10] Installing base packages..."
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -y
+  install_chromium
+  apt-get install -y curl ca-certificates git libreoffice fontconfig build-essential
+  if [[ "$WITH_NGINX" == "true" ]]; then
+    apt-get install -y nginx certbot python3-certbot-nginx
+  fi
+  [[ -n "$CHROMIUM_BIN" ]] || die "Chromium binary not found after installation."
 
-if [[ "$UPGRADE" != "true" && -d "$INSTALL_DIR/.git" ]]; then
-  echo "Install dir already has a git repo: $INSTALL_DIR"
-  echo "Use --upgrade to update existing installation, or --force to reinstall."
-  exit 1
-fi
+  info "[2/10] Installing Node.js 20..."
+  install_nodejs_20
 
-mkdir -p "$APP_DATA_DIRECTORY"/{exports,uploads,images,fonts}
-mkdir -p "$TEMP_DIR"
-chmod -R 755 "$APP_DATA_DIRECTORY"
+  info "[3/10] Installing uv..."
+  install_uv
+}
 
-if [[ "$SERVICE_USER" != "root" ]]; then
+ensure_service_user() {
+  if [[ "$SERVICE_USER" == "root" ]]; then
+    SERVICE_GROUP="root"
+    SERVICE_HOME="/root"
+    return
+  fi
+
   if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
-    useradd --system --create-home --shell /usr/sbin/nologin "$SERVICE_USER"
+    useradd --system --create-home --shell /bin/bash "$SERVICE_USER"
   fi
-fi
-SERVICE_GROUP="$(id -gn "$SERVICE_USER")"
-chown -R "$SERVICE_USER:$SERVICE_GROUP" "$APP_DATA_DIRECTORY" "$TEMP_DIR" "$UV_PYTHON_INSTALL_DIR"
 
-echo "[6/10] Fetching repository..."
-if [[ -d "$INSTALL_DIR/.git" ]]; then
-  cd "$INSTALL_DIR"
-  current_remote="$(git remote get-url origin || true)"
-  if [[ "$current_remote" != "$REPO_URL" ]]; then
-    git remote set-url origin "$REPO_URL"
+  SERVICE_GROUP="$(id -gn "$SERVICE_USER")"
+  SERVICE_HOME="$(getent passwd "$SERVICE_USER" | cut -d: -f6)"
+  [[ -n "$SERVICE_HOME" ]] || die "Cannot resolve home directory for $SERVICE_USER"
+  mkdir -p "$SERVICE_HOME/.cache"
+  chown -R "$SERVICE_USER:$SERVICE_GROUP" "$SERVICE_HOME"
+}
+
+prepare_runtime_dirs() {
+  info "[4/10] Installing Python 3.11 via uv..."
+  mkdir -p "$UV_PYTHON_INSTALL_DIR"
+  UV_PYTHON_INSTALL_DIR="$UV_PYTHON_INSTALL_DIR" "$UV_BIN" python install 3.11
+
+  info "[5/10] Preparing service user and directories..."
+  ensure_service_user
+  mkdir -p "$APP_DATA_DIRECTORY"/{exports,uploads,images,fonts} "$TEMP_DIR"
+  chmod -R 755 "$APP_DATA_DIRECTORY"
+  chown -R "$SERVICE_USER:$SERVICE_GROUP" "$APP_DATA_DIRECTORY" "$TEMP_DIR" "$UV_PYTHON_INSTALL_DIR"
+}
+
+sync_repository() {
+  info "[6/10] Fetching repository..."
+  mkdir -p "$(dirname "$INSTALL_DIR")"
+
+  if [[ -d "$INSTALL_DIR" && ! -d "$INSTALL_DIR/.git" && "$FORCE" != "true" ]]; then
+    die "Install dir exists but is not a git repo: $INSTALL_DIR. Use --force to replace."
   fi
-else
-  git clone "$REPO_URL" "$INSTALL_DIR"
-  cd "$INSTALL_DIR"
-fi
 
-git fetch --all --tags --prune
-git checkout "$REF"
-if git ls-remote --heads origin "$REF" | grep -q .; then
-  git pull --ff-only origin "$REF"
-fi
-chown -R "$SERVICE_USER:$SERVICE_GROUP" "$INSTALL_DIR"
+  if [[ "$FORCE" == "true" && -d "$INSTALL_DIR" ]]; then
+    rm -rf "$INSTALL_DIR"
+  fi
 
-echo "[7/10] Building FastAPI + Next.js..."
-run_as_service_user "cd '$INSTALL_DIR/servers/fastapi' && UV_PYTHON_INSTALL_DIR='$UV_PYTHON_INSTALL_DIR' '$UV_BIN' sync --frozen"
-run_as_service_user "cd '$INSTALL_DIR/servers/nextjs' && npm ci && npm run build"
+  if [[ "$UPGRADE" != "true" && -d "$INSTALL_DIR/.git" ]]; then
+    die "Install dir already has a git repo: $INSTALL_DIR. Use --upgrade or --force."
+  fi
 
-echo "[8/10] Writing environment and systemd units..."
-ENV_FILE="/etc/presenton.env"
-FASTAPI_SERVICE="/etc/systemd/system/presenton-fastapi.service"
-MCP_SERVICE="/etc/systemd/system/presenton-mcp.service"
-NEXTJS_SERVICE="/etc/systemd/system/presenton-nextjs.service"
-chown -R "$SERVICE_USER:$SERVICE_GROUP" "$APP_DATA_DIRECTORY" "$TEMP_DIR" "$INSTALL_DIR"
+  if [[ -d "$INSTALL_DIR/.git" ]]; then
+    cd "$INSTALL_DIR"
+    local current_remote
+    current_remote="$(git remote get-url origin || true)"
+    if [[ "$current_remote" != "$REPO_URL" ]]; then
+      git remote set-url origin "$REPO_URL"
+    fi
+  else
+    git clone "$REPO_URL" "$INSTALL_DIR"
+    cd "$INSTALL_DIR"
+  fi
 
-PYTHON_BIN="$INSTALL_DIR/servers/fastapi/.venv/bin/python"
-if [[ ! -x "$PYTHON_BIN" ]]; then
-  echo "FastAPI venv Python not found: $PYTHON_BIN"
-  exit 1
-fi
+  git fetch --all --tags --prune
+  if git ls-remote --heads origin "$REF" | grep -q .; then
+    git checkout -B "$REF" "origin/$REF"
+    git pull --ff-only origin "$REF"
+  else
+    git checkout "$REF"
+  fi
+  chown -R "$SERVICE_USER:$SERVICE_GROUP" "$INSTALL_DIR"
+}
 
-cat >"$ENV_FILE" <<EOF_ENV
+build_app() {
+  info "[7/10] Building FastAPI + Next.js..."
+  run_as_service_user "cd '$INSTALL_DIR/servers/fastapi' && UV_PYTHON_INSTALL_DIR='$UV_PYTHON_INSTALL_DIR' '$UV_BIN' sync --frozen"
+  run_as_service_user "cd '$INSTALL_DIR/servers/nextjs' && npm ci && npm run build"
+}
+
+write_env_file() {
+  cat >"$ENV_FILE" <<EOF_ENV
 APP_DATA_DIRECTORY=$APP_DATA_DIRECTORY
 TEMP_DIRECTORY=$TEMP_DIR
 USER_CONFIG_PATH=$APP_DATA_DIRECTORY/userConfig.json
@@ -310,15 +301,24 @@ PRESENTON_NEXTJS_INTERNAL_URL=http://127.0.0.1:$NEXTJS_PORT
 PRESENTON_FASTAPI_INTERNAL_URL=http://127.0.0.1:$FASTAPI_PORT
 PRESENTON_NEXTJS_BIND_HOST=$NEXTJS_BIND_HOST
 EOF_ENV
-if [[ "$SERVICE_USER" == "root" ]]; then
-  chown root:root "$ENV_FILE"
-  chmod 600 "$ENV_FILE"
-else
-  chown root:"$SERVICE_GROUP" "$ENV_FILE"
-  chmod 640 "$ENV_FILE"
-fi
 
-cat >"$FASTAPI_SERVICE" <<EOF_FASTAPI
+  if [[ "$SERVICE_USER" == "root" ]]; then
+    chown root:root "$ENV_FILE"
+    chmod 600 "$ENV_FILE"
+  else
+    chown root:"$SERVICE_GROUP" "$ENV_FILE"
+    chmod 640 "$ENV_FILE"
+  fi
+}
+
+write_systemd_units() {
+  info "[8/10] Writing environment and systemd units..."
+  PYTHON_BIN="$INSTALL_DIR/servers/fastapi/.venv/bin/python"
+  [[ -x "$PYTHON_BIN" ]] || die "FastAPI venv Python not found: $PYTHON_BIN"
+
+  write_env_file
+
+  cat >"$FASTAPI_SERVICE" <<EOF_FASTAPI
 [Unit]
 Description=Presenton FastAPI
 After=network.target
@@ -338,7 +338,7 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF_FASTAPI
 
-cat >"$MCP_SERVICE" <<EOF_MCP
+  cat >"$MCP_SERVICE" <<EOF_MCP
 [Unit]
 Description=Presenton MCP
 After=network.target presenton-fastapi.service
@@ -359,7 +359,7 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF_MCP
 
-cat >"$NEXTJS_SERVICE" <<EOF_NEXT
+  cat >"$NEXTJS_SERVICE" <<EOF_NEXT
 [Unit]
 Description=Presenton Next.js
 After=network.target presenton-fastapi.service
@@ -381,10 +381,18 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF_NEXT
 
-if [[ "$WITH_NGINX" == "true" ]]; then
-  echo "[9/10] Configuring nginx + certbot..."
-  SITE_AVAILABLE="/etc/nginx/sites-available/presenton.conf"
-  SITE_ENABLED="/etc/nginx/sites-enabled/presenton.conf"
+  chown -R "$SERVICE_USER:$SERVICE_GROUP" "$APP_DATA_DIRECTORY" "$TEMP_DIR" "$INSTALL_DIR"
+}
+
+configure_nginx_if_needed() {
+  if [[ "$WITH_NGINX" != "true" ]]; then
+    info "[9/10] Skipping nginx (direct mode)."
+    return
+  fi
+
+  info "[9/10] Configuring nginx + certbot..."
+  local site_available="/etc/nginx/sites-available/presenton.conf"
+  local site_enabled="/etc/nginx/sites-enabled/presenton.conf"
 
   export PRESENTON_DEPLOY_ROOT="$INSTALL_DIR"
   export PRESENTON_APP_DATA="$APP_DATA_DIRECTORY"
@@ -392,9 +400,9 @@ if [[ "$WITH_NGINX" == "true" ]]; then
   export PRESENTON_NEXTJS_PORT="$NEXTJS_PORT"
   export PRESENTON_FASTAPI_PORT="$FASTAPI_PORT"
   export PRESENTON_MCP_PORT="$MCP_PORT"
-  bash "$INSTALL_DIR/scripts/render-nginx-conf.sh" "$SITE_AVAILABLE"
+  bash "$INSTALL_DIR/scripts/render-nginx-conf.sh" "$site_available"
 
-  ln -sf "$SITE_AVAILABLE" "$SITE_ENABLED"
+  ln -sf "$site_available" "$site_enabled"
   rm -f /etc/nginx/sites-enabled/default || true
   nginx -t
   systemctl enable nginx >/dev/null 2>&1 || true
@@ -402,60 +410,78 @@ if [[ "$WITH_NGINX" == "true" ]]; then
 
   set +e
   certbot --nginx -d "$DOMAIN" --email "$EMAIL" --agree-tos --non-interactive --redirect -m "$EMAIL"
-  CERTBOT_EXIT=$?
+  local certbot_exit=$?
   set -e
-  if [[ $CERTBOT_EXIT -ne 0 ]]; then
-    echo "certbot failed (exit $CERTBOT_EXIT). HTTP still works."
+  if [[ $certbot_exit -ne 0 ]]; then
+    info "certbot failed (exit $certbot_exit). HTTP will still work."
   fi
-else
-  echo "[9/10] Skipping nginx (direct mode)."
-fi
+}
 
-echo "[10/10] Enabling and starting services..."
-systemctl daemon-reload
-systemctl enable --now presenton-fastapi presenton-mcp presenton-nextjs
-
-NEXT_HEALTH_URL="http://127.0.0.1:$NEXTJS_PORT/"
-FASTAPI_HEALTH_URL="http://127.0.0.1:$FASTAPI_PORT/docs"
-FASTAPI_BUSINESS_HEALTH_URL="http://127.0.0.1:$FASTAPI_PORT/api/v1/ppt/ollama/models/supported"
-NEXT_PROXY_HEALTH_URL="http://127.0.0.1:$NEXTJS_PORT/api/v1/ppt/ollama/models/supported"
-HEALTH_FAILED=0
-echo "Health checks (with retries):"
-if ! wait_for_http "$NEXT_HEALTH_URL" "Next.js"; then
-  HEALTH_FAILED=1
-fi
-if ! wait_for_http "$FASTAPI_HEALTH_URL" "FastAPI"; then
-  HEALTH_FAILED=1
-fi
-if ! wait_for_http "$FASTAPI_BUSINESS_HEALTH_URL" "FastAPI business API"; then
-  HEALTH_FAILED=1
-fi
-if ! wait_for_http "$NEXT_PROXY_HEALTH_URL" "Next.js -> FastAPI proxy API"; then
-  HEALTH_FAILED=1
-fi
-
-echo
-if [[ "$UPGRADE" == "true" ]]; then
-  echo "Upgrade completed."
-else
-  echo "Install completed."
-fi
-if [[ "$WITH_NGINX" == "true" ]]; then
-  echo "Open:"
-  echo "  http://$DOMAIN"
-  echo "  https://$DOMAIN (if certbot succeeded)"
-else
-  echo "Open:"
-  echo "  http://<server-ip>:$NEXTJS_PORT"
-fi
-echo
-echo "Logs:"
-echo "  journalctl -u presenton-fastapi -f"
-echo "  journalctl -u presenton-nextjs -f"
-echo "  journalctl -u presenton-mcp -f"
-
-if [[ "$HEALTH_FAILED" -ne 0 ]]; then
+show_failure_logs() {
   echo
-  echo "One or more health checks failed. Please review service logs above."
-  exit 1
-fi
+  echo "Recent service logs:"
+  journalctl -u presenton-fastapi -n 40 --no-pager || true
+  journalctl -u presenton-nextjs -n 40 --no-pager || true
+  journalctl -u presenton-mcp -n 40 --no-pager || true
+}
+
+run_health_checks() {
+  local next_health_url="http://127.0.0.1:$NEXTJS_PORT/"
+  local fastapi_health_url="http://127.0.0.1:$FASTAPI_PORT/docs"
+  local fastapi_business_url="http://127.0.0.1:$FASTAPI_PORT/api/v1/ppt/ollama/models/supported"
+  local next_proxy_url="http://127.0.0.1:$NEXTJS_PORT/api/v1/ppt/ollama/models/supported"
+  local health_failed=0
+
+  echo "Health checks (with retries):"
+  wait_for_http "$next_health_url" "Next.js" || health_failed=1
+  wait_for_http "$fastapi_health_url" "FastAPI" || health_failed=1
+  wait_for_http "$fastapi_business_url" "FastAPI business API" || health_failed=1
+  wait_for_http "$next_proxy_url" "Next.js -> FastAPI proxy API" || health_failed=1
+
+  if [[ "$health_failed" -ne 0 ]]; then
+    echo
+    echo "One or more health checks failed."
+    show_failure_logs
+    exit 1
+  fi
+}
+
+main() {
+  parse_args "$@"
+  validate_args
+  install_base_packages
+  prepare_runtime_dirs
+  sync_repository
+  build_app
+  write_systemd_units
+  configure_nginx_if_needed
+
+  info "[10/10] Enabling and starting services..."
+  systemctl daemon-reload
+  systemctl enable --now presenton-fastapi presenton-mcp presenton-nextjs
+  run_health_checks
+
+  echo
+  if [[ "$UPGRADE" == "true" ]]; then
+    echo "Upgrade completed."
+  else
+    echo "Install completed."
+  fi
+
+  if [[ "$WITH_NGINX" == "true" ]]; then
+    echo "Open:"
+    echo "  http://$DOMAIN"
+    echo "  https://$DOMAIN (if certbot succeeded)"
+  else
+    echo "Open:"
+    echo "  http://<server-ip>:$NEXTJS_PORT"
+  fi
+
+  echo
+  echo "Logs:"
+  echo "  journalctl -u presenton-fastapi -f"
+  echo "  journalctl -u presenton-nextjs -f"
+  echo "  journalctl -u presenton-mcp -f"
+}
+
+main "$@"
